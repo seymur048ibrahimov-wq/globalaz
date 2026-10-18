@@ -4,7 +4,14 @@ const http = require('http'), fs = require('fs'), path = require('path');
 const PORT = +process.env.PORT || 3000;
 const KEY = process.env.CJ_API_KEY || '';
 const CJ = process.env.CJ_BASE || 'https://developers.cjdropshipping.com/api2.0/v1';
-const PAGE = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8').replace('api:"",', 'api:"/",');
+let PAGE = '';
+for (const f of ['index.html', 'globalaz.html', 'public/index.html', 'public/globalaz.html']) {
+  try { PAGE = fs.readFileSync(path.join(__dirname, f), 'utf8').replace('api:"",', 'api:"/",'); console.log('Sayt faylı:', f); break; } catch {}
+}
+if (!PAGE) {
+  console.error('index.html tapılmadı. Qovluqdakı fayllar:', fs.readdirSync(__dirname).join(', '));
+  PAGE = '<!doctype html><meta charset="utf-8"><title>GlobalAz</title><p>index.html faylı repo-ya yüklənməyib. Faylı server.js ilə eyni qovluğa qoyun.</p>';
+}
 
 async function cj(p, opts, token) {
   const r = await fetch(CJ + p, { ...opts, headers: { 'Content-Type': 'application/json', ...(token ? { 'CJ-Access-Token': token } : {}) } });
