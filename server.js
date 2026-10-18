@@ -44,4 +44,4 @@ http.createServer(async (req, res) => {
     if (u.pathname === '/' || u.pathname === '/index.html') return send(res, 200, PAGE, 'text/html; charset=utf-8');
     send(res, 404, { error: 'Tapılmadı' });
   } catch (e) { send(res, 502, { error: e.message }); }
-}).listen(PORT, () => console.log('GlobalAz http://localhost:' + PORT + (KEY ? '' : '  (CJ_API_KEY yoxdur)')));
+}).listen(PORT, () => console.log('GlobalAz v3 (sayt serverin içindədir) port ' + PORT + (KEY ? '' : '  (CJ_API_KEY yoxdur)')));
