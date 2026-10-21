@@ -42,6 +42,36 @@ async function tr(t,from='zh-CN',to='az'){
  const r=await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl='+from+'&tl='+to+'&q='+encodeURIComponent(t.slice(0,1500)),{signal:AbortSignal.timeout(10000)});
  return(await r.json())[0].map(x=>x[0]).join('')}
 
+// ---- Taobao API (RapidAPI): açar yalnız .env faylında saxlanır ----
+const RK=E.RAPIDAPI_KEY||'',RH=E.RAPIDAPI_HOST||'open-taobao-api1.p.rapidapi.com',RP=E.TAOBAO_PATH||'';
+const itemId=l=>(String(l).match(/[?&](?:id|offerId)=(\d{6,})/)||String(l).match(/offer\/(\d{6,})/)||[])[1]||'';
+const fixU=u=>{u=String(u||'').trim();return u.startsWith('//')?'https:'+u:u};
+const num=v=>{const m=String(v==null?'':v).match(/\d+(?:\.\d+)?/);return m?+m[0]:0};
+function dig(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(x[k]!=null&&x[k]!==''&&typeof x[k]!=='object')return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
+function digArr(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(Array.isArray(x[k])&&x[k].length)return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
+const pick1=(o,ks)=>{for(const k of ks)if(o&&o[k]!=null&&typeof o[k]!=='object'&&o[k]!=='')return o[k]};
+function parseItem(j){
+ const title=s(dig(j,['title','item_title','subject','name']),300).trim();
+ const cny=num(dig(j,['promotion_price','price','sale_price','min_price','orginal_price','original_price','reserve_price']));
+ const ia=digArr(j,['item_imgs','main_imgs','images','pics','pic_urls','imgs','image_list'])||[];
+ let imgs=ia.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','pic_url','image']))).filter(Boolean);
+ const img=fixU(dig(j,['pic_url','main_img','image','img','pic']))||imgs[0]||'';
+ imgs=[...new Set(imgs)].filter(u=>u!==img).slice(0,8);
+ const desc=s(String(dig(j,['desc_short','description','desc'])||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),600);
+ const oa=digArr(j,['sku_props','props_list','skuProps','sku_base','props'])||[];
+ const opts=oa.slice(0,5).map(o=>{const n=s(pick1(o,['name','prop_name','propName','title']),30);
+  const va=Array.isArray(o&&o.values)?o.values:Array.isArray(o&&o.value)?o.value:Array.isArray(o&&o.props)?o.props:[];
+  return{n,v:va.slice(0,30).map(x=>s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),40)).filter(Boolean)}}).filter(o=>o.n&&o.v.length);
+ return{title,img,imgs,cny,desc,opts}}
+async function apiRaw(link){
+ const id=itemId(link);if(!RK||!RP)throw new Error('API qoşulmayıb (.env: RAPIDAPI_KEY, TAOBAO_PATH)');if(!id)throw new Error('Linkdən məhsul nömrəsi tapılmadı');
+ const r=await fetch('https://'+RH+RP.replace('{id}',id),{headers:{'x-rapidapi-key':RK,'x-rapidapi-host':RH},signal:AbortSignal.timeout(20000)});
+ const txt=await r.text();let j={};try{j=JSON.parse(txt)}catch{}
+ if(!r.ok)throw new Error('API '+r.status+': '+s(txt,150));return j}
+async function trOpts(opts){if(!opts.length)return opts;
+ try{const L=opts.map(o=>o.n+': '+o.v.join(', ')),t=(await tr(L.join('\n'))).split('\n');if(t.length!==L.length)return opts;
+  return t.map((l,i)=>{const m=l.split(/[:：]/);const n=(m.shift()||'').trim(),v=m.join(':').split(/[,，、]/).map(x=>x.trim()).filter(Boolean);return n&&v.length?{n:s(n,30),v:v.slice(0,30)}:opts[i]})}catch{return opts}}
+
 // ---- Mağaza (açıq): src = gizli məhsul ID, Taobao linki müştəriyə göstərilmir ----
 app.get('/api/products',(q,r)=>r.json({cfg:pcfg(),list:db.products.map(p=>({n:p.az||p.zh,c:p.c,img:p.img,imgs:p.imgs||[],desc:p.desc||'',opts:p.opts||[],cny:p.cny,pr:p.pr,kg:p.kg,src:p.id,from:'ga'}))}));
 app.post('/api/orders',async(q,r)=>{const b=q.body||{};const gu=await gUser(q);if(!gu)return r.status(401).json({error:'Əvvəlcə Google ilə daxil olun'});
@@ -71,14 +101,22 @@ app.post('/api/admin/products',auth,(q,r)=>{const p={id:uid(),...clean(q.body)};
 app.put('/api/admin/products/:id',auth,(q,r)=>{const i=db.products.findIndex(x=>x.id===q.params.id);if(i<0)return r.status(404).json({error:'Tapılmadı'});db.products[i]={id:q.params.id,...clean(q.body)};save();r.json(db.products[i])});
 app.delete('/api/admin/products/:id',auth,(q,r)=>{db.products=db.products.filter(x=>x.id!==q.params.id);save();r.json({ok:true})});
 app.post('/api/fetch',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
- try{r.json(await lookup(link))}catch(e){r.json({link,title:'',img:'',cny:0,blocked:true})}});
+ let out=null,apiError='';
+ try{const p=parseItem(await apiRaw(link));if(p.title)out={...p,link,via:'api'}}catch(e){apiError=e.message}
+ if(out){try{if(out.desc)out.desc=await tr(out.desc,'zh-CN','az')}catch{}out.opts=await trOpts(out.opts);return r.json(out)}
+ try{r.json({...await lookup(link),via:'page',apiError})}catch(e){r.json({link,title:'',img:'',cny:0,blocked:true,via:'page',apiError})}});
+app.post('/api/admin/taobao-test',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
+ const o={configured:!!(RK&&RP),host:RH,id:itemId(link)};
+ try{const j=await apiRaw(link);o.parsed=parseItem(j);o.raw=s(JSON.stringify(j),6000)}catch(e){o.error=e.message}r.json(o)});
 app.post('/api/translate',auth,async(q,r)=>{try{r.json({text:await tr(s(q.body&&q.body.text,1500))})}catch(e){r.status(502).json({error:'Tərcümə alınmadı'})}});
 
 app.get('/api/admin/settings',auth,(q,r)=>r.json(pcfg()));
 app.put('/api/admin/settings',auth,(q,r)=>{const b=q.body||{};for(const k of['rate','margin','cargo','cust']){if(b[k]!==''&&b[k]!=null&&isFinite(+b[k]))db.settings[k]=+b[k]}
  for(const k of['wa'])if(b[k]!=null)db.settings[k]=s(b[k],120).trim();save();r.json({ok:true})});
 app.post('/api/admin/password',auth,(q,r)=>{const p=s(q.body&&q.body.password,100);if(p.length<6)return r.status(400).json({error:'Parol ən azı 6 simvol olmalıdır'});db.pass=H(p);save();r.json({ok:true})});
-app.get('/admin',(q,r)=>r.sendFile(path.join(__dirname,'public','admin.html')));
-app.get('/',(q,r)=>r.sendFile(path.join(__dirname,'public','index.html')));
+const PUB=path.join(__dirname,'public');
+const page=n=>{try{const L=fs.readdirSync(PUB).map(f=>{const m=f.match(new RegExp('^'+n+'(\\d*)\\.html$'));return m&&{f,v:+m[1]||0}}).filter(Boolean).sort((a,b)=>b.v-a.v);return L.length?path.join(PUB,L[0].f):null}catch{return null}};
+app.get('/admin',(q,r)=>{const f=page('admin');f?r.sendFile(f):r.status(404).send('Admin səhifəsi tapılmadı')});
+app.get('/',(q,r)=>{const f=page('index');f?r.sendFile(f):r.status(404).send('Ana səhifə tapılmadı')});
 app.use(express.static(path.join(__dirname,'public')));
 app.listen(PORT,()=>console.log('GlobalAz: http://localhost:'+PORT+'  |  Admin: http://localhost:'+PORT+'/admin'));
