@@ -38,7 +38,7 @@ async function lookup(link){
  let img=meta('og:image')||(h.match(/"(?:pic|image|mainPic|picUrl)"\s*:\s*"((?:https?:)?\/\/[^"]+)"/)||[])[1]||'';if(img.startsWith('//'))img='https:'+img;
  const cny=+(meta('og:product:price:amount')||(h.match(/"(?:price|priceText|minPrice)"\s*:\s*"?(\d+(?:\.\d+)?)/)||[])[1]||0);
  return{link:canon(r.url)||link,title,img,cny,blocked:!title||/登录|验证|login|captcha|^(淘宝网|天猫|阿里巴巴)$/i.test(title+' '+r.url)}}
-async function tr(t,from='zh-CN',to='az'){
+async function tr(t,from='auto',to='az'){
  const r=await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl='+from+'&tl='+to+'&q='+encodeURIComponent(t.slice(0,1500)),{signal:AbortSignal.timeout(10000)});
  return(await r.json())[0].map(x=>x[0]).join('')}
 
@@ -51,26 +51,36 @@ function dig(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shi
 function digArr(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(Array.isArray(x[k])&&x[k].length)return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
 const pick1=(o,ks)=>{for(const k of ks)if(o&&o[k]!=null&&typeof o[k]!=='object'&&o[k]!=='')return o[k]};
 function parseItem(j){
- const title=s(dig(j,['title','item_title','subject','name']),300).trim();
- const cny=num(dig(j,['promotion_price','price','sale_price','min_price','orginal_price','original_price','reserve_price']));
+ const cjk=/[\u4e00-\u9fff]/;
+ const names=[dig(j,['nameTrans']),dig(j,['name','title','item_title','subject'])].map(x=>String(x==null?'':x).trim()).filter(Boolean);
+ const title=s(names.find(x=>cjk.test(x))||names[0]||'',300);
+ const skus=digArr(j,['skus'])||[];
+ const sp=skus.map(x=>num(x&&x.cnyPrice)).filter(x=>x>0);
+ const top=num(dig(j,['cnyPrice','promotion_price','price','sale_price','min_price','orginal_price','original_price','reserve_price']));
+ const cny=sp.length?Math.min(...sp):top,cnyMax=sp.length?Math.max(...sp):cny;
  const ia=digArr(j,['item_imgs','main_imgs','images','pics','pic_urls','imgs','image_list'])||[];
  let imgs=ia.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','pic_url','image']))).filter(Boolean);
- const img=fixU(dig(j,['pic_url','main_img','image','img','pic']))||imgs[0]||'';
+ const img=fixU(dig(j,['coverImage','pic_url','main_img','image','img','pic']))||imgs[0]||'';
  imgs=[...new Set(imgs)].filter(u=>u!==img).slice(0,8);
- const desc=s(String(dig(j,['desc_short','description','desc'])||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),600);
- const oa=digArr(j,['sku_props','props_list','skuProps','sku_base','props'])||[];
- const opts=oa.slice(0,5).map(o=>{const n=s(pick1(o,['name','prop_name','propName','title']),30);
-  const va=Array.isArray(o&&o.values)?o.values:Array.isArray(o&&o.value)?o.value:Array.isArray(o&&o.props)?o.props:[];
-  return{n,v:va.slice(0,30).map(x=>s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),40)).filter(Boolean)}}).filter(o=>o.n&&o.v.length);
- return{title,img,imgs,cny,desc,opts}}
+ let desc=s(String(dig(j,['desc_short','description','desc'])||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),600);
+ if(!desc){const seen=new Set(),L=[];for(const a of(digArr(j,['productAttrs'])||[])){const n=s(a&&a.attributeName,40),v=s(a&&a.value,80),k=n+'|'+v;if(!n||!v||/color classification/i.test(n)||seen.has(k))continue;seen.add(k);L.push(n+': '+v)}desc=s(L.slice(0,12).join('\n'),600)}
+ let opts=[];
+ if(skus.length){const m=new Map();for(const k of skus)for(const p of((k&&k.properties)||[])){const n=s(p&&(p.displayName||p.name),30).replace(/[:：]/g,' ').trim(),v=s(p&&(p.displayValue||p.value),80).replace(/[,，、]/g,' ').trim();if(!n||!v)continue;if(!m.has(n))m.set(n,[]);const x=m.get(n);if(!x.includes(v))x.push(v)}
+  opts=[...m].slice(0,5).map(([n,v])=>({n,v:v.slice(0,30)}))}
+ else{const oa=digArr(j,['sku_props','props_list','skuProps','sku_base','props'])||[];
+  opts=oa.slice(0,5).map(o=>{const n=s(pick1(o,['name','prop_name','propName','title']),30);
+   const va=Array.isArray(o&&o.values)?o.values:Array.isArray(o&&o.value)?o.value:Array.isArray(o&&o.props)?o.props:[];
+   return{n,v:va.slice(0,30).map(x=>s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),80)).filter(Boolean)}}).filter(o=>o.n&&o.v.length)}
+ return{title,img,imgs,cny,cnyMax,desc,opts}}
 async function apiRaw(link){
  const id=itemId(link);if(!RK||!RP)throw new Error('API qoşulmayıb (.env: RAPIDAPI_KEY, TAOBAO_PATH)');if(!id)throw new Error('Linkdən məhsul nömrəsi tapılmadı');
  const r=await fetch('https://'+RH+RP.replace('{id}',id),{headers:{'x-rapidapi-key':RK,'x-rapidapi-host':RH},signal:AbortSignal.timeout(20000)});
  const txt=await r.text();let j={};try{j=JSON.parse(txt)}catch{}
  if(!r.ok)throw new Error('API '+r.status+': '+s(txt,150));return j}
 async function trOpts(opts){if(!opts.length)return opts;
- try{const L=opts.map(o=>o.n+': '+o.v.join(', ')),t=(await tr(L.join('\n'))).split('\n');if(t.length!==L.length)return opts;
-  return t.map((l,i)=>{const m=l.split(/[:：]/);const n=(m.shift()||'').trim(),v=m.join(':').split(/[,，、]/).map(x=>x.trim()).filter(Boolean);return n&&v.length?{n:s(n,30),v:v.slice(0,30)}:opts[i]})}catch{return opts}}
+ try{const L=[];opts.forEach(o=>{L.push(o.n,...o.v)});if(L.join('\n').length>1400)return opts;
+  const t=(await tr(L.join('\n'))).split('\n');if(t.length!==L.length)return opts;
+  let i=0;return opts.map(o=>({n:s(t[i++].replace(/[:：]/g,' ').trim()||o.n,30),v:o.v.map(x=>s(t[i++].replace(/[,，、]/g,' ').trim()||x,80))}))}catch{return opts}}
 
 // ---- Mağaza (açıq): src = gizli məhsul ID, Taobao linki müştəriyə göstərilmir ----
 app.get('/api/products',(q,r)=>r.json({cfg:pcfg(),list:db.products.map(p=>({n:p.az||p.zh,c:p.c,img:p.img,imgs:p.imgs||[],desc:p.desc||'',opts:p.opts||[],cny:p.cny,pr:p.pr,kg:p.kg,src:p.id,from:'ga'}))}));
@@ -96,14 +106,14 @@ app.patch('/api/orders/:id',auth,(q,r)=>{const o=db.orders.find(x=>x.id===q.para
 app.get('/api/admin/products',auth,(q,r)=>r.json({list:db.products}));
 const clean=b=>({link:canon(b.link),zh:s(b.zh,300),az:s(b.az,300),c:s(b.c,40)||'Digər',img:s(b.img,500),cny:+b.cny||0,kg:+b.kg||0.5,pr:+b.pr||0,desc:s(b.desc,2000),
  imgs:(Array.isArray(b.imgs)?b.imgs:[]).map(x=>s(x,500)).filter(Boolean).slice(0,8),
- opts:(Array.isArray(b.opts)?b.opts:[]).slice(0,5).map(o=>({n:s(o.n,30),v:(Array.isArray(o.v)?o.v:[]).slice(0,30).map(x=>s(x,40)).filter(Boolean)})).filter(o=>o.n&&o.v.length)});
+ opts:(Array.isArray(b.opts)?b.opts:[]).slice(0,5).map(o=>({n:s(o.n,30),v:(Array.isArray(o.v)?o.v:[]).slice(0,30).map(x=>s(x,80)).filter(Boolean)})).filter(o=>o.n&&o.v.length)});
 app.post('/api/admin/products',auth,(q,r)=>{const p={id:uid(),...clean(q.body)};db.products.unshift(p);save();r.json(p)});
 app.put('/api/admin/products/:id',auth,(q,r)=>{const i=db.products.findIndex(x=>x.id===q.params.id);if(i<0)return r.status(404).json({error:'Tapılmadı'});db.products[i]={id:q.params.id,...clean(q.body)};save();r.json(db.products[i])});
 app.delete('/api/admin/products/:id',auth,(q,r)=>{db.products=db.products.filter(x=>x.id!==q.params.id);save();r.json({ok:true})});
 app.post('/api/fetch',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  let out=null,apiError='';
  try{const p=parseItem(await apiRaw(link));if(p.title)out={...p,link,via:'api'}}catch(e){apiError=e.message}
- if(out){try{if(out.desc)out.desc=await tr(out.desc,'zh-CN','az')}catch{}out.opts=await trOpts(out.opts);return r.json(out)}
+ if(out){try{if(out.desc)out.desc=await tr(out.desc)}catch{}out.opts=await trOpts(out.opts);return r.json(out)}
  try{r.json({...await lookup(link),via:'page',apiError})}catch(e){r.json({link,title:'',img:'',cny:0,blocked:true,via:'page',apiError})}});
 app.post('/api/admin/taobao-test',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  const o={configured:!!(RK&&RP),host:RH,id:itemId(link)};
