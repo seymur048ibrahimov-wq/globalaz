@@ -29,7 +29,7 @@ label{display:grid;gap:3px;font-size:13px;color:var(--mu);font-weight:600;margin
 <div id="lg"><div class="box"><img class="lgi" id="lgi" alt=""><h2>GlobalAz Admin</h2><p class="sb">Yalnız admin girişi</p>
 <div class="pwr"><input id="pw" type="password" placeholder="Admin parolu" autocomplete="current-password" onkeydown="event.key==='Enter'&&login()"><button type="button" aria-label="Parolu göstər" onclick="const i=$('pw');i.type=i.type==='password'?'text':'password'">👁</button></div>
 <button class="go" onclick="login()">Daxil ol</button>
-<button type="button" class="go alt" onclick="location.href='/'">Mağazaya keç</button></div></div>
+</div></div>
 <div id="ap" hidden>
 <header><b>GlobalAz Admin</b><button id="t_o" onclick="tab('o')">Sifarişlər</button><button id="t_p" onclick="tab('p')">Məhsullar</button><button id="t_a" onclick="tab('a')">+ Məhsul əlavə et</button><button id="t_h" onclick="tab('h')">Hesabat</button><button id="t_s" onclick="tab('s')">Tənzimləmələr</button><button onclick="logout()">Çıxış</button></header>
 <main>
@@ -62,7 +62,7 @@ async function api(p,o={}){const r=await fetch('/api'+p,{method:o.method||'GET',
  if(r.status===401&&T){logout()}if(!r.ok)throw new Error(j.error||('Xəta '+r.status));return j}
 async function login(){try{T=(await api('/login',{method:'POST',body:{password:$('pw').value}})).token;localStorage.setItem('ga_t',T);start()}catch(e){msg(e.message)}}
 function logout(){T='';localStorage.removeItem('ga_t');$('lg').hidden=false;$('ap').hidden=true}
-async function start(){try{CFG=(await fetch('/api/products').then(r=>r.json())).cfg;PR=(await api('/admin/products')).list;OR=(await api('/orders')).list}catch(e){return}
+async function start(){try{CFG=(await fetch('/api/products').then(r=>r.json())).cfg;PR=(await api('/admin/products')).list;OR=(await api('/orders')).list}catch(e){msg('Panel açılmadı: '+e.message);return}
  $('lg').hidden=true;$('ap').hidden=false;$('cat').innerHTML=CATS.map(c=>`<option>${c}</option>`).join('');ro();rp();rh();ls();tab('o')}
 function tab(t){for(const k of['o','p','a','h','s']){$('s_'+k).hidden=k!==t;$('t_'+k).className=k===t?'on':''}}
 const fp=p=>p.pr>0?p.pr:((p.cny*CFG.rate)*(1+CFG.margin/100)+p.kg*CFG.cargo)*(1+CFG.cust/100);
