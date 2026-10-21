@@ -28,7 +28,7 @@ async function gUser(req){
 
 // Taobao/1688 linkini qısa təmiz formaya salır
 function canon(u){const m=String(u||'').match(/https?:\/\/[^\s"'<>]+/);if(!m)return'';u=m[0];
- const id=(u.match(/[?&](?:id|offerId)=(\d{6,})/)||u.match(/offer\/(\d{6,})/)||[])[1];
+ const id=itemId(u);
  if(id&&/1688\.com/.test(u))return`https://detail.1688.com/offer/${id}.html`;
  if(id&&/(taobao|tmall)\.com/.test(u))return`https://item.taobao.com/item.htm?id=${id}`;return u}
 async function lookup(link){
@@ -44,7 +44,11 @@ async function tr(t,from='auto',to='az'){
 
 // ---- Taobao API (RapidAPI): açar yalnız .env faylında saxlanır ----
 const RK=E.RAPIDAPI_KEY||'',RH=E.RAPIDAPI_HOST||'open-taobao-api1.p.rapidapi.com',RP=E.TAOBAO_PATH||'';
-const itemId=l=>(String(l).match(/[?&](?:id|offerId)=(\d{6,})/)||String(l).match(/offer\/(\d{6,})/)||[])[1]||'';
+const itemId=l=>{l=String(l);return(l.match(/[?&#](?:id|item_id|itemId|itemid|offerId|num_iid|nid)=(\d{6,})/i)||l.match(/\/(?:offer|item)\/(\d{6,})/)||[])[1]||''};
+async function resolveId(link){let id=itemId(link);if(id)return id;
+ try{const r=await fetch(link,{redirect:'follow',signal:AbortSignal.timeout(12000),headers:{'user-agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148','accept-language':'zh-CN,zh;q=0.9'}});
+  id=itemId(r.url);if(id)return id;const h=(await r.text()).slice(0,300000).replace(/\\u003d|\\x3d|%3D/gi,'=').replace(/\\u0026|\\x26|%26|&amp;/gi,'&').replace(/\\\//g,'/');
+  const m=h.match(/[?&;](?:id|itemId|item_id)=(\d{9,})/)||h.match(/"(?:itemId|item_id|num_iid)"\s*:\s*"?(\d{9,})/);return m?m[1]:''}catch{return''}}
 const fixU=u=>{u=String(u||'').trim();return u.startsWith('//')?'https:'+u:u};
 const num=v=>{const m=String(v==null?'':v).match(/\d+(?:\.\d+)?/);return m?+m[0]:0};
 function dig(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(x[k]!=null&&x[k]!==''&&typeof x[k]!=='object')return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
@@ -73,7 +77,7 @@ function parseItem(j){
    return{n,v:va.slice(0,30).map(x=>s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),80)).filter(Boolean)}}).filter(o=>o.n&&o.v.length)}
  return{title,img,imgs,cny,cnyMax,desc,opts}}
 async function apiRaw(link){
- const id=itemId(link);if(!RK||!RP)throw new Error('API qoşulmayıb (.env: RAPIDAPI_KEY, TAOBAO_PATH)');if(!id)throw new Error('Linkdən məhsul nömrəsi tapılmadı');
+ if(!RK||!RP)throw new Error('API qoşulmayıb (RAPIDAPI_KEY, TAOBAO_PATH təyin olunmayıb)');const id=await resolveId(link);if(!id)throw new Error('Linkdən məhsul nömrəsi tapılmadı. Nömrəsi (id=...) olan tam Taobao/Tmall/1688 linki yapışdırın');
  const r=await fetch('https://'+RH+RP.replace('{id}',id),{headers:{'x-rapidapi-key':RK,'x-rapidapi-host':RH},signal:AbortSignal.timeout(20000)});
  const txt=await r.text();let j={};try{j=JSON.parse(txt)}catch{}
  if(!r.ok)throw new Error('API '+r.status+': '+s(txt,150));return j}
