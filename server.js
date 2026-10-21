@@ -125,7 +125,7 @@ app.put('/api/admin/settings',auth,(q,r)=>{const b=q.body||{};for(const k of['ra
  for(const k of['wa'])if(b[k]!=null)db.settings[k]=s(b[k],120).trim();save();r.json({ok:true})});
 app.post('/api/admin/password',auth,(q,r)=>{const p=s(q.body&&q.body.password,100);if(p.length<6)return r.status(400).json({error:'Parol ən azı 6 simvol olmalıdır'});db.pass=H(p);save();r.json({ok:true})});
 const PUB=path.join(__dirname,'public');
-const page=n=>{try{const L=fs.readdirSync(PUB).map(f=>{const m=f.match(new RegExp('^'+n+'(\\d*)\\.html$'));return m&&{f,v:+m[1]||0}}).filter(Boolean).sort((a,b)=>b.v-a.v);return L.length?path.join(PUB,L[0].f):null}catch{return null}};
+const page=n=>{for(const d of[PUB,__dirname]){try{const L=fs.readdirSync(d).map(f=>{const m=f.match(new RegExp('^'+n+'(\\d*)\\.html$'));return m&&{f,v:+m[1]||0}}).filter(Boolean).sort((a,b)=>b.v-a.v);if(L.length)return path.join(d,L[0].f)}catch{}}return null};
 app.get('/admin',(q,r)=>{const f=page('admin');f?r.sendFile(f):r.status(404).send('Admin səhifəsi tapılmadı')});
 app.get('/',(q,r)=>{const f=page('index');f?r.sendFile(f):r.status(404).send('Ana səhifə tapılmadı')});
 app.use(express.static(path.join(__dirname,'public')));
