@@ -57,7 +57,7 @@ const STS={new:'Yeni',ordered:'Sifariş verildi',shipped:'Yolda',done:'Çatdır�
 const CATS=["Qadın geyimləri","Kişi geyimləri","Ayaqqabı","Çanta və aksesuar","Gözəllik və baxım","Telefon və rəqəmsal","Məişət texnikası","Ev və dekor","Mətbəx","Ana və uşaq","Oyuncaqlar","İdman və turizm","Avto məhsulları","Zinət və saatlar","Ev heyvanları","Kitab və hobbi","Digər"];
 $('lgi').src=document.querySelector('#splash img').src;setTimeout(()=>{const s=$('splash');if(!s)return;s.classList.add('off');setTimeout(()=>s.remove(),600)},3000);
 let T=localStorage.getItem('ga_t')||'',CFG={rate:.24,margin:12,cargo:6,cust:5},PR=[],OR=[],ED=null;
-function msg(t){const m=$('msg');m.textContent=t;m.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>m.style.display='none',2800)}
+function msg(t){const m=$('msg');m.textContent=t;m.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>m.style.display='none',Math.max(2800,t.length*80))}
 async function api(p,o={}){const r=await fetch('/api'+p,{method:o.method||'GET',headers:{'Content-Type':'application/json','x-token':T},body:o.body?JSON.stringify(o.body):undefined}),j=await r.json().catch(()=>({}));
  if(r.status===401&&T){logout()}if(!r.ok)throw new Error(j.error||('Xəta '+r.status));return j}
 async function login(){try{T=(await api('/login',{method:'POST',body:{password:$('pw').value}})).token;localStorage.setItem('ga_t',T);start()}catch(e){msg(e.message)}}
@@ -95,7 +95,7 @@ function cp(l){navigator.clipboard.writeText(l).then(()=>msg('Link kopyalandı')
 async function gt(l){rs();tab('a');$('lk').value=l;await fl()}
 async function fl(){const l=$('lk').value.trim();if(!l)return msg('Link daxil edin');msg('Gətirilir…');
  try{const j=await api('/fetch',{method:'POST',body:{url:l}});$('lk').value=j.link;if(j.title){$('zh').value=j.title;await tz()}if(j.img)$('im').value=j.img;if(j.cny)$('cn').value=j.cny;if(j.imgs&&j.imgs.length)$('ims').value=j.imgs.join('\n');if(j.opts&&j.opts.length)$('op').value=j.opts.map(o=>o.n+': '+o.v.join(', ')).join('\n');if(j.desc)$('ds').value=j.desc;pv();
- msg(j.blocked?(j.apiError?'API xətası: '+j.apiError:'Sayt məlumat vermədi (giriş/captcha). Çin adını və qiyməti əl ilə yapışdırın.'):(j.via==='api'?'Gətirildi (API)':'Gətirildi'))}catch(e){msg(e.message)}}
+ msg(j.blocked?(j.apiError?'API xətası: '+j.apiError:'Sayt məlumat vermədi (giriş/captcha). Çin adını və qiyməti əl ilə yapışdırın.'):((j.via==='api'?'Gətirildi (API)':'Gətirildi')+(j.cnyMax>j.cny?'. Diqqət: variantların qiyməti fərqlidir ('+j.cny+' – '+j.cnyMax+' ¥), saytda ən aşağı qiymət göstəriləcək':'')))}catch(e){msg(e.message)}}
 async function tz(){const t=$('zh').value.trim();if(!t)return;try{$('az').value=(await api('/translate',{method:'POST',body:{text:t}})).text}catch(e){msg(e.message)}}
 function pv(){const p={cny:+$('cn').value||0,kg:+$('kg').value||0.5,pr:+$('pr').value||0};$('pvv').textContent=p.cny||p.pr?fp(p).toFixed(2)+' ₼':'—'}
 function rs(){ED=null;$('ft').textContent='Yeni məhsul';for(const k of['lk','zh','az','im','cn','pr','ds','ims','op'])$(k).value='';$('kg').value=.5;pv()}
