@@ -1,4 +1,4 @@
-// GlobalAz server: mağaza + admin panel + sifarişlər. İşə salmaq: npm install && npm start
+// GlobalAz server v2: mağaza + admin panel + kataloq + sifarişlər (addım tarixçəsi, Taobao agent). İşə salmaq: npm install && npm start
 const fs=require('fs'),path=require('path'),crypto=require('crypto'),express=require('express');
 try{for(const l of fs.readFileSync(path.join(__dirname,'.env'),'utf8').split(/\r?\n/)){const m=l.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/);if(m&&!(m[1] in process.env))process.env[m[1]]=m[2].replace(/^["']|["']$/g,'')}}catch{}
 const E=process.env,PORT=E.PORT||3000,PASS=E.ADMIN_PASSWORD||'admin123';
@@ -15,7 +15,10 @@ const auth=(q,r,n)=>okTok(q.get('x-token'))?n():r.status(401).json({error:'Giri�
 const pcfg=()=>({...cfg,...Object.fromEntries(Object.entries(db.settings).filter(([k])=>k in cfg))});
 const up=p=>{const c=pcfg();return p.pr>0?p.pr:((p.cny*c.rate)*(1+c.margin/100)+p.kg*c.cargo)*(1+c.cust/100)};
 const H=x=>crypto.createHash('sha256').update(String(x)).digest('hex'),fails={};
-const app=express();app.use(express.json({limit:'200kb'}));
+const DEFCATS=[['Qadın geyimləri','women'],['Kişi geyimləri','men'],['Ayaqqabı','shoe'],['Çanta və aksesuar','bag'],['Gözəllik və baxım','beauty'],['Telefon və rəqəmsal','phone'],['Məişət texnikası','appliance'],['Ev və dekor','home'],['Mətbəx','kitchen'],['Ana və uşaq','baby'],['Oyuncaqlar','toy'],['İdman və turizm','sport'],['Avto məhsulları','car'],['Zinət və saatlar','jewel'],['Ev heyvanları','pet'],['Kitab və hobbi','book'],['Digər','other']].map(([name,icon],i)=>({id:'c'+(i+1),name,icon}));
+const cats=()=>Array.isArray(db.cats)&&db.cats.length?db.cats:DEFCATS;
+const hist=(o,k,v,n)=>{(o.hist=o.hist||[]).push({t:new Date().toISOString(),k,v:s(v,80),n:s(n||'',200)})};
+const app=express();app.use(express.json({limit:'400kb'}));
 
 // ---- Google (Firebase) giriş: token yoxlanışı (əlavə paket lazım deyil) ----
 const FB_KEY=E.FIREBASE_API_KEY||'AIzaSyArQxfkmpcVNs_6uV-6q3EZqWh6KTd9g78',gcache=new Map();
@@ -60,17 +63,24 @@ function parseItem(j){
  const ia=digArr(j,['item_imgs','main_imgs','images','imageUrls','pics','pic_urls','imgs','image_list'])||[];
  let imgs=ia.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','pic_url','image']))).filter(Boolean);
  const img=fixU(dig(j,['coverImage','pic_url','main_img','image','img','pic']))||imgs[0]||'';
- imgs=[...new Set(imgs)].filter(u=>u!==img).slice(0,8);
+ imgs=[...new Set(imgs)].filter(u=>u!==img).slice(0,12);
  let desc=s(String(dig(j,['desc_short','description','desc'])||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),600);
  if(!desc){const seen=new Set(),L=[];for(const a of(digArr(j,['productAttrs'])||[])){const n=s(a&&a.attributeName,40),v=s(a&&a.value,80),k=n+'|'+v;if(!n||!v||/color classification/i.test(n)||seen.has(k))continue;seen.add(k);L.push(n+': '+v)}desc=s(L.slice(0,12).join('\n'),600)}
  let opts=[];
- if(skus.length){const m=new Map();for(const k of skus)for(const p of((k&&k.properties)||[])){const n=s(p&&(p.displayName||p.name),30).replace(/[:：]/g,' ').trim(),v=s(p&&(p.displayValue||p.value),80).replace(/[,，、]/g,' ').trim();if(!n||!v)continue;if(!m.has(n))m.set(n,[]);const x=m.get(n);if(!x.includes(v))x.push(v)}
-  opts=[...m].slice(0,5).map(([n,v])=>({n,v:v.slice(0,30)}))}
+ if(skus.length){const m=new Map(),vim=new Map();for(const k of skus)for(const p of((k&&k.properties)||[])){const n=s(p&&(p.displayName||p.name),30).replace(/[:：]/g,' ').trim(),v=s(p&&(p.displayValue||p.value),80).replace(/[,，、]/g,' ').trim();if(!n||!v)continue;if(!m.has(n))m.set(n,[]);const x=m.get(n);if(!x.includes(v))x.push(v);
+   const pi=fixU(pick1(p,['imageUrl','image','imgUrl','img','picUrl','pic']))||fixU(pick1(k,['imageUrl','image','imgUrl','picUrl']));if(pi&&p&&!/size|尺|码/i.test(n)){const K=n+'\u0001'+v;if(!vim.has(K))vim.set(K,pi)}}
+  opts=[...m].slice(0,5).map(([n,v])=>({n,v:v.slice(0,30),vi:v.slice(0,30).map(x=>vim.get(n+'\u0001'+x)||'')}))}
  else{const oa=digArr(j,['sku_props','props_list','skuProps','sku_base','props'])||[];
   opts=oa.slice(0,5).map(o=>{const n=s(pick1(o,['name','prop_name','propName','title']),30);
    const va=Array.isArray(o&&o.values)?o.values:Array.isArray(o&&o.value)?o.value:Array.isArray(o&&o.props)?o.props:[];
-   return{n,v:va.slice(0,30).map(x=>s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),80)).filter(Boolean)}}).filter(o=>o.n&&o.v.length)}
- return{title,img,imgs,cny,cnyMax,desc,opts}}
+   const v=va.slice(0,30).map(x=>s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),80)).filter(Boolean);return{n,v,vi:v.map(()=>'')}}).filter(o=>o.n&&o.v.length)}
+ // əlavə: xüsusiyyətlər, satıcı, video, ətraflı şəkillər
+ const attrs=[],seen2=new Set();for(const a of(digArr(j,['productAttrs','attributes','props_list_attrs','specs'])||[])){const n=s(a&&(a.attributeName||a.name||a.key),40),v=s(a&&(a.value||a.val),120),k=n+'|'+v;if(!n||!v||/color classification/i.test(n)||seen2.has(k))continue;seen2.add(k);attrs.push({n,v})}
+ const shop=s(dig(j,['shopName','shop_name','sellerNick','seller_nick','storeName','seller']),80);
+ const vd=fixU(dig(j,['video','videoUrl','video_url','mainVideo']));const video=/^https:\/\//.test(vd)?s(vd,500):'';
+ const da=digArr(j,['desc_imgs','detail_images','detailImages','descImages','description_images','descImgs'])||[];
+ const dimgs=[...new Set(da.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','src']))).filter(u=>/^https:\/\//.test(u)))].slice(0,20);
+ return{title,img,imgs,cny,cnyMax,desc,opts,attrs:attrs.slice(0,40),shop,video,dimgs}}
 // ---- Apify: token yalnız .env faylında (APIFY_TOKEN) ----
 const AK=E.APIFY_TOKEN||'',AA=(E.APIFY_ACTOR||'khadinakbar~taobao-product-detail-scraper').replace('/','~');
 async function apifyRaw(link){
@@ -83,19 +93,20 @@ const rawAny=link=>apifyRaw(link);
 async function trOpts(opts){if(!opts.length)return opts;
  try{const L=[];opts.forEach(o=>{L.push(o.n,...o.v)});if(L.join('\n').length>1400)return opts;
   const t=(await tr(L.join('\n'))).split('\n');if(t.length!==L.length)return opts;
-  let i=0;return opts.map(o=>({n:s(t[i++].replace(/[:：]/g,' ').trim()||o.n,30),v:o.v.map(x=>s(t[i++].replace(/[,，、]/g,' ').trim()||x,80))}))}catch{return opts}}
+  let i=0;return opts.map(o=>({n:s(t[i++].replace(/[:：]/g,' ').trim()||o.n,30),v:o.v.map(x=>s(t[i++].replace(/[,，、]/g,' ').trim()||x,80)),vi:o.vi||[]}))}catch{return opts}}
+async function trAttrs(a){if(!a.length)return a;try{const L=[];a.forEach(x=>{L.push(x.n,x.v)});const out=[];for(let i=0;i<L.length;){let j=i,len=0;while(j<L.length&&len+L[j].length<1300){len+=L[j].length+1;j++}if(j===i)j=i+1;const t=(await tr(L.slice(i,j).join('\n'))).split('\n');if(t.length!==j-i)return a;out.push(...t);i=j}return a.map((x,k)=>({n:s(out[2*k]||x.n,40),v:s(out[2*k+1]||x.v,120)}))}catch{return a}}
 
 // ---- Mağaza (açıq): src = gizli məhsul ID, Taobao linki müştəriyə göstərilmir ----
-app.get('/api/products',(q,r)=>r.json({cfg:pcfg(),list:db.products.map(p=>({n:p.az||p.zh,c:p.c,img:p.img,imgs:p.imgs||[],desc:p.desc||'',opts:p.opts||[],cny:p.cny,pr:p.pr,kg:p.kg,src:p.id,from:'ga'}))}));
+app.get('/api/products',(q,r)=>r.json({cfg:pcfg(),cats:cats(),list:db.products.map(p=>({n:p.az||p.zh,c:p.c,img:p.img,imgs:p.imgs||[],desc:p.desc||'',opts:p.opts||[],attrs:p.attrs||[],video:p.video||'',dimgs:p.dimgs||[],cny:p.cny,pr:p.pr,kg:p.kg,src:p.id,from:'ga'}))}));
 app.post('/api/orders',async(q,r)=>{const b=q.body||{};const gu=await gUser(q);if(!gu)return r.status(401).json({error:'Əvvəlcə Google ilə daxil olun'});
  if(!s(b.name)||!s(b.phone)||!s(b.address)||!Array.isArray(b.items)||!b.items.length)return r.status(400).json({error:'Məlumat çatışmır'});
- const items=b.items.slice(0,50).map(i=>{const p=db.products.find(x=>x.id===i.src)||{};return{n:s(i.n),q:Math.max(1,+i.q|0),u:p.id?+up(p).toFixed(2):(+i.u||0),opt:s(i.opt,150),link:p.link||'',zh:p.zh||'',img:p.img||''}});
+ const items=b.items.slice(0,50).map(i=>{const p=db.products.find(x=>x.id===i.src)||{};return{n:s(i.n),q:Math.max(1,+i.q|0),u:p.id?+up(p).toFixed(2):(+i.u||0),opt:s(i.opt,150),link:p.link||'',zh:p.zh||'',img:p.img||'',shop:p.shop||'',cny:p.cny||0,kg:p.kg||0}});
  const total=+items.reduce((a,i)=>a+i.u*i.q,0).toFixed(2);
- const o={id:uid(),uid:gu.uid,email:gu.email,no:s(b.no,30),date:new Date().toISOString(),name:s(b.name),phone:s(b.phone,40),address:s(b.address,300),items,total,status:'new',pay:'none',track:'',note:'',cost:0};
- db.orders.unshift(o);save();
+ const o={id:uid(),uid:gu.uid,email:gu.email,gname:gu.name,no:s(b.no,30),date:new Date().toISOString(),name:s(b.name),phone:s(b.phone,40),city:s(b.city,80),address:s(b.address,300),cnote:s(b.cnote,300),items,total,status:'new',pay:'none',track:'',note:'',cost:0,taobaoNo:'',agentSent:false,hist:[]};
+ hist(o,'status','new','Müştəri sifariş verdi');db.orders.unshift(o);save();
  r.json({ok:true,no:o.no})});
 app.get('/api/my-orders',async(q,r)=>{const gu=await gUser(q);if(!gu)return r.status(401).json({error:'Giriş tələb olunur'});
- r.json({list:db.orders.filter(o=>o.uid===gu.uid).slice(0,50).map(o=>({no:o.no,date:o.date,total:o.total,status:o.status,pay:o.pay,track:o.track,items:o.items.map(i=>i.n+' × '+i.q)}))})});
+ r.json({list:db.orders.filter(o=>o.uid===gu.uid).slice(0,50).map(o=>({no:o.no,date:o.date,total:o.total,status:o.status,pay:o.pay,track:o.track,steps:(o.hist||[]).filter(h=>h.k==='status').map(h=>({t:h.t,v:h.v})),items:o.items.map(i=>i.n+(i.opt?' ('+i.opt+')':'')+' × '+i.q)}))})});
 app.get('/api/track/:no',(q,r)=>{const o=db.orders.find(x=>x.no===q.params.no);if(!o)return r.status(404).json({error:'Tapılmadı'});r.json({status:o.status,pay:o.pay,track:o.track})});
 
 // ---- Admin ----
@@ -105,27 +116,42 @@ app.post('/api/login',(q,r)=>{const f=fails[q.ip]||{n:0,t:0};if(f.n>=5&&Date.now
  delete fails[q.ip];r.json({token:mk()})});
 app.get('/api/orders',auth,(q,r)=>r.json({list:db.orders}));
 app.patch('/api/orders/:id',auth,(q,r)=>{const o=db.orders.find(x=>x.id===q.params.id);if(!o)return r.status(404).json({error:'Tapılmadı'});const b=q.body||{};
- if(b.status!=null)o.status=s(b.status,20);if(b.pay!=null)o.pay=s(b.pay,10);if(b.track!=null)o.track=s(b.track,80);if(b.note!=null)o.note=s(b.note,300);if(b.cost!=null)o.cost=+b.cost||0;save();r.json({ok:true})});
+ if(b.status!=null&&s(b.status,20)!==o.status){o.status=s(b.status,20);hist(o,'status',o.status,b.hn)}
+ if(b.pay!=null&&s(b.pay,10)!==(o.pay||'none')){o.pay=s(b.pay,10);hist(o,'pay',o.pay)}
+ if(b.track!=null&&s(b.track,80)!==(o.track||'')){o.track=s(b.track,80);hist(o,'track',o.track)}
+ if(b.taobaoNo!=null&&s(b.taobaoNo,60)!==(o.taobaoNo||'')){o.taobaoNo=s(b.taobaoNo,60);hist(o,'taobao',o.taobaoNo,'Taobao sifariş nömrəsi')}
+ if(b.agentSent===true&&!o.agentSent){o.agentSent=true;hist(o,'agent','sent','Sifariş Taobao agentinə göndərildi')}
+ if(b.note!=null)o.note=s(b.note,300);if(b.cost!=null)o.cost=+b.cost||0;save();r.json({ok:true,order:o})});
 app.get('/api/admin/products',auth,(q,r)=>r.json({list:db.products}));
 const clean=b=>({link:canon(b.link),zh:s(b.zh,300),az:s(b.az,300),c:s(b.c,40)||'Digər',img:s(b.img,500),cny:+b.cny||0,kg:+b.kg||0.5,pr:+b.pr||0,desc:s(b.desc,2000),
- imgs:(Array.isArray(b.imgs)?b.imgs:[]).map(x=>s(x,500)).filter(Boolean).slice(0,8),
- opts:(Array.isArray(b.opts)?b.opts:[]).slice(0,5).map(o=>({n:s(o.n,30),v:(Array.isArray(o.v)?o.v:[]).slice(0,30).map(x=>s(x,80)).filter(Boolean)})).filter(o=>o.n&&o.v.length)});
+ imgs:(Array.isArray(b.imgs)?b.imgs:[]).map(x=>s(x,500)).filter(Boolean).slice(0,12),
+ opts:(Array.isArray(b.opts)?b.opts:[]).slice(0,6).map(o=>{const v=[],vi=[];(Array.isArray(o.v)?o.v:[]).slice(0,40).forEach((x,i)=>{const t=s(x,80).trim();if(t){v.push(t);vi.push(s((o.vi||[])[i],500))}});return{n:s(o.n,30),v,vi}}).filter(o=>o.n&&o.v.length),
+ attrs:(Array.isArray(b.attrs)?b.attrs:[]).slice(0,40).map(a=>({n:s(a&&a.n,40).trim(),v:s(a&&a.v,160).trim()})).filter(a=>a.n&&a.v),
+ shop:s(b.shop,80),video:/^https:\/\//.test(String(b.video||''))?s(b.video,500):'',
+ dimgs:(Array.isArray(b.dimgs)?b.dimgs:[]).map(x=>s(x,500)).filter(x=>/^https:\/\//.test(x)).slice(0,20)});
 app.post('/api/admin/products',auth,(q,r)=>{const p={id:uid(),...clean(q.body)};db.products.unshift(p);save();r.json(p)});
 app.put('/api/admin/products/:id',auth,(q,r)=>{const i=db.products.findIndex(x=>x.id===q.params.id);if(i<0)return r.status(404).json({error:'Tapılmadı'});db.products[i]={id:q.params.id,...clean(q.body)};save();r.json(db.products[i])});
 app.delete('/api/admin/products/:id',auth,(q,r)=>{db.products=db.products.filter(x=>x.id!==q.params.id);save();r.json({ok:true})});
 app.post('/api/fetch',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  let out=null,apiError='';
  try{const p=parseItem(await rawAny(link));if(p.title)out={...p,link,via:'api'}}catch(e){apiError=e.message}
- if(out){try{if(out.desc)out.desc=await tr(out.desc)}catch{}out.opts=await trOpts(out.opts);return r.json(out)}
+ if(out){try{if(out.desc)out.desc=await tr(out.desc)}catch{}out.opts=await trOpts(out.opts);out.attrs=await trAttrs(out.attrs||[]);if(out.shop&&/[\u4e00-\u9fff]/.test(out.shop)){try{out.shop=await tr(out.shop)}catch{}}return r.json(out)}
  try{r.json({...await lookup(link),via:'page',apiError})}catch(e){r.json({link,title:'',img:'',cny:0,blocked:true,via:'page',apiError})}});
 app.post('/api/admin/taobao-test',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  const o={configured:!!AK,actor:AA,id:itemId(link)};
  try{const j=await rawAny(link);o.parsed=parseItem(j);o.raw=s(JSON.stringify(j),6000)}catch(e){o.error=e.message}r.json(o)});
 app.post('/api/translate',auth,async(q,r)=>{try{r.json({text:await tr(s(q.body&&q.body.text,1500))})}catch(e){r.status(502).json({error:'Tərcümə alınmadı'})}});
 
-app.get('/api/admin/settings',auth,(q,r)=>r.json(pcfg()));
+app.get('/api/admin/catalog',auth,(q,r)=>r.json({list:cats(),counts:Object.fromEntries(cats().map(c=>[c.name,db.products.filter(p=>p.c===c.name).length]))}));
+app.put('/api/admin/catalog',auth,(q,r)=>{const old=cats();let L=(Array.isArray(q.body&&q.body.list)?q.body.list:[]).slice(0,60).map(c=>({id:s(c&&c.id,20)||'c'+uid(),name:s(c&&c.name,40).trim(),icon:s(c&&c.icon,20)||'other'})).filter(c=>c.name);
+ const seen=new Set();L=L.filter(c=>!seen.has(c.name.toLowerCase())&&seen.add(c.name.toLowerCase()));
+ if(!L.some(c=>c.name==='Digər'))L.push({id:'c'+uid(),name:'Digər',icon:'other'});
+ for(const c of L){const o=old.find(x=>x.id===c.id);if(o&&o.name!==c.name)db.products.forEach(p=>{if(p.c===o.name)p.c=c.name})}
+ const names=new Set(L.map(c=>c.name));db.products.forEach(p=>{if(!names.has(p.c))p.c='Digər'});
+ db.cats=L;save();r.json({ok:true,list:L})});
+app.get('/api/admin/settings',auth,(q,r)=>r.json({...pcfg(),wh:db.settings.wh||'',agent:db.settings.agent||''}));
 app.put('/api/admin/settings',auth,(q,r)=>{const b=q.body||{};for(const k of['rate','margin','cargo','cust']){if(b[k]!==''&&b[k]!=null&&isFinite(+b[k]))db.settings[k]=+b[k]}
- for(const k of['wa'])if(b[k]!=null)db.settings[k]=s(b[k],120).trim();save();r.json({ok:true})});
+ for(const k of['wa','agent'])if(b[k]!=null)db.settings[k]=s(b[k],120).trim();if(b.wh!=null)db.settings.wh=s(b.wh,500).trim();save();r.json({ok:true})});
 app.post('/api/admin/password',auth,(q,r)=>{const p=s(q.body&&q.body.password,100);if(p.length<6)return r.status(400).json({error:'Parol ən azı 6 simvol olmalıdır'});db.pass=H(p);save();r.json({ok:true})});
 const PUB=path.join(__dirname,'public');
 const page=n=>{for(const d of[PUB,__dirname]){try{const L=fs.readdirSync(d).map(f=>{const m=f.match(new RegExp('^'+n+'(\\d*)\\.html$'));return m&&{f,v:+m[1]||0}}).filter(Boolean).sort((a,b)=>b.v-a.v);if(L.length)return path.join(d,L[0].f)}catch{}}return null};
