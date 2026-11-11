@@ -61,7 +61,21 @@ const SKU_IMG=['imageUrl','image','imgUrl','img','picUrl','pic','pic_url'];
 function dig(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(x[k]!=null&&x[k]!==''&&typeof x[k]!=='object')return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
 function digArr(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(Array.isArray(x[k])&&x[k].length)return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
 const pick1=(o,ks)=>{for(const k of ks)if(o&&o[k]!=null&&typeof o[k]!=='object'&&o[k]!=='')return o[k]};
+// Bəzi Actor-lar variantı "propsNames: '颜色分类:黑色;尺码:S'" və ya "propsIds + propsList" kimi verir — vahid "properties" formasına salırıq
+function normSkus(j){const sk=digArr(j,['skus','skuList','sku_list'])||[];if(!sk.length)return;
+ const pl=(j&&(j.propsList||j.props_list_map))||{},pim=(j&&(j.propsImages||j.props_images))||{};
+ const plGet=id=>Array.isArray(pl)?((pl.find(x=>x&&String(x.id||x.propsId||x.key)===id)||{}).name||''):(pl[id]||'');
+ for(const k of sk){if(!k||typeof k!=='object'||Array.isArray(k.properties))continue;const props=[];
+  const ids=String(k.propsIds||k.propPath||k.prop_path||'').split(';').filter(Boolean);
+  const names=Array.isArray(k.propsNames)?k.propsNames:String(k.propsNames||k.propsName||k.skuName||'').split(';').filter(Boolean);
+  const n=Math.max(ids.length,names.length);
+  for(let i=0;i<n;i++){let lab=String(names[i]||plGet(ids[i])||'');let nm='',vl=lab;const c=lab.search(/[:：]/);if(c>0){nm=lab.slice(0,c);vl=lab.slice(c+1)}
+   if(!nm){const pid=(ids[i]||'').split(':')[0];nm=pid?'Variant '+(i+1):''}
+   if(nm&&vl)props.push({name:nm.trim(),value:vl.trim(),imageUrl:fixU(pim[ids[i]]||'')})}
+  if(props.length)k.properties=props;
+  if(k.quantity==null&&k.stock==null&&k.inventory!=null)k.quantity=k.inventory}}
 function parseItem(j){
+ normSkus(j);
  const cjk=/[\u4e00-\u9fff]/;
  const names=[dig(j,['nameTrans']),dig(j,['name','title','item_title','subject'])].map(x=>String(x==null?'':x).trim()).filter(Boolean);
  const title=s(names.find(x=>cjk.test(x))||names[0]||'',300);
@@ -69,9 +83,9 @@ function parseItem(j){
  const sp=skus.map(x=>num(x&&x.cnyPrice)).filter(x=>x>0);
  const top=num(dig(j,['cnyPrice','priceCny','priceCNY','promotion_price','price','sale_price','min_price','orginal_price','original_price','reserve_price']));
  const cny=sp.length?Math.min(...sp):top,cnyMax=sp.length?Math.max(...sp):cny;
- const ia=digArr(j,['item_imgs','main_imgs','images','imageUrls','pics','pic_urls','imgs','image_list'])||[];
+ const ia=digArr(j,['item_imgs','main_imgs','images','imageUrls','pictures','pics','pic_urls','imgs','image_list'])||[];
  let imgs=ia.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','pic_url','image']))).filter(Boolean);
- const img=fixU(dig(j,['coverImage','pic_url','main_img','image','img','pic']))||imgs[0]||'';
+ const img=fixU(dig(j,['coverImage','mainPictureUrl','mainImage','pic_url','main_img','image','img','pic']))||imgs[0]||'';
  imgs=[...new Set(imgs)].filter(u=>u!==img).slice(0,12);
  let desc=s(String(dig(j,['desc_short','description','desc'])||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),600);
  // (xüsusiyyətlər ayrıca cədvəldə göstərilir, təsvirə təkrar yazılmır)
@@ -109,18 +123,36 @@ function parseItem(j){
  const spO=sk.map(x=>x.o).filter(x=>x>0);
  const cnyOrig=spO.length?Math.min(...spO):num(dig(j,['originalPrice','original_price','orginal_price','reserve_price','marketPrice']));
  const vd=fixU(dig(j,['video','videoUrl','video_url','mainVideo']));const video=/^https:\/\//.test(vd)?s(vd,500):'';
- const da=digArr(j,['desc_imgs','detail_images','detailImages','descImages','description_images','descImgs'])||[];
- const dimgs=[...new Set(da.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','src']))).filter(u=>/^https:\/\//.test(u)))].slice(0,20);
+ const da=digArr(j,['desc_imgs','detail_images','detailImages','descImages','description_images','descriptionImages','descImgs'])||[];
+ let dimgs=[...new Set(da.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','src']))).filter(u=>/^https:\/\//.test(u)))].slice(0,20);
+ // Bəzi Actor-lar ətraflı şəkilləri "description" HTML-in içində verir — oradan çıxarırıq
+ if(!dimgs.length){const dh=String(dig(j,['description','desc','descHtml','detailHtml'])||'');const L=[];dh.replace(/<img[^>]+src\s*=\s*["']([^"']+)["']/gi,(_,u)=>{u=fixU(u);if(/^https:\/\//.test(u))L.push(u);return''});dimgs=[...new Set(L)].slice(0,20)}
  const skMin=sk.length?Math.min(...sk.map(x=>x.cny)):0,skMax=sk.length?Math.max(...sk.map(x=>x.cny)):0;
  return{title,img,imgs,cny:skMin||cny,cnyMax:skMax||cnyMax,cnyOrig:cnyOrig>(skMin||cny)?cnyOrig:0,desc,opts,skus:sk,brand,sold,attrs:attrs.slice(0,40),shop,video,dimgs}}
 // ---- Apify: token yalnız .env faylında (APIFY_TOKEN) ----
 const AK=E.APIFY_TOKEN||'',AA=(E.APIFY_ACTOR||'khadinakbar~taobao-product-detail-scraper').replace('/','~');
+// Əsas Actor çöksə, avtomatik ehtiyat Actor işə düşür (.env: APIFY_ACTOR2; "-" yazsanız söndürülür)
+const AA2=(E.APIFY_ACTOR2||'zen-studio~taobao-detail-scraper').replace('/','~');
+// Hər Actor linki fərqli sahə adı ilə qəbul edir
+function actInput(actor,link){
+ if(E.APIFY_INPUT_KEY)return{[E.APIFY_INPUT_KEY]:[link]};
+ if(/zen-studio/.test(actor))return{items:[link],fetchReviews:false};
+ if(/memo23|jakvbs|logiover|scrapesage/.test(actor))return{startUrls:[link],maxItems:1};
+ if(/h1018y|pizani|mlg14/.test(actor))return{urls:[link],productUrls:[link]};
+ return{productUrls:[link],maxItems:1}}
+async function apifyRun(actor,link){
+ const r=await fetch('https://api.apify.com/v2/acts/'+actor+'/run-sync-get-dataset-items?timeout=120',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+AK},body:JSON.stringify(actInput(actor,link)),signal:AbortSignal.timeout(130000)});
+ const txt=await r.text();let j=[];try{j=JSON.parse(txt)}catch{}
+ if(!r.ok){const m=(j&&j.error&&(j.error.message||j.error.type))||s(txt,150);const run=(String(m).match(/run ID:\s*(\w+)/)||[])[1];
+  throw new Error(actor+' → '+r.status+': '+s(m,160)+(run?' | jurnal: https://console.apify.com/actors/runs/'+run:''))}
+ if(!Array.isArray(j)||!j[0])throw new Error(actor+' → boş nəticə');
+ const x=j[0];if(x&&(x.error||x.errorMessage)&&!x.title&&!x.skus)throw new Error(actor+' → '+s(x.error||x.errorMessage,150));
+ return x}
 async function apifyRaw(link){
  if(!AK)throw new Error('Apify qoşulmayıb (.env: APIFY_TOKEN)');
- const r=await fetch('https://api.apify.com/v2/acts/'+AA+'/run-sync-get-dataset-items?timeout=90',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+AK},body:JSON.stringify({productUrls:[link],maxItems:1}),signal:AbortSignal.timeout(100000)});
- const txt=await r.text();let j=[];try{j=JSON.parse(txt)}catch{}
- if(!r.ok)throw new Error('Apify '+r.status+': '+s(txt,150));
- if(!Array.isArray(j)||!j[0])throw new Error('Apify boş nəticə qaytardı');return j[0]}
+ const list=[AA,...(AA2&&AA2!=='-'&&AA2!==AA?[AA2]:[])],errs=[];
+ for(const a of list){try{const x=await apifyRun(a,link);x.__actor=a;return x}catch(e){errs.push(e.message);console.error('Apify:',e.message)}}
+ throw new Error(errs.join(' || '))}
 const rawAny=link=>apifyRaw(link);
 async function trOpts(opts){if(!opts.length)return opts;
  try{const L=[];opts.forEach(o=>{L.push(o.n,...o.v)});if(L.join('\n').length>1400)return opts;
@@ -170,12 +202,12 @@ app.put('/api/admin/products/:id',auth,(q,r)=>{const i=db.products.findIndex(x=>
 app.delete('/api/admin/products/:id',auth,(q,r)=>{db.products=db.products.filter(x=>x.id!==q.params.id);save();r.json({ok:true})});
 app.post('/api/fetch',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  let out=null,apiError='';
- try{const p=parseItem(await rawAny(link));if(p.title)out={...p,link,via:'api'}}catch(e){apiError=e.message}
+ try{const raw=await rawAny(link);const p=parseItem(raw);if(p.title)out={...p,link,via:'api',actor:raw.__actor||AA}}catch(e){apiError=e.message}
  if(out){try{if(out.desc)out.desc=await tr(out.desc)}catch{}out.opts=await trOpts(out.opts);out.attrs=await trAttrs(out.attrs||[]);if(out.shop&&/[\u4e00-\u9fff]/.test(out.shop)){try{out.shop=await tr(out.shop)}catch{}}if(out.brand&&CJK.test(out.brand)){try{out.brand=s(await tr(out.brand),60)}catch{}}return r.json(out)}
  try{r.json({...await lookup(link),via:'page',apiError})}catch(e){r.json({link,title:'',img:'',cny:0,blocked:true,via:'page',apiError})}});
 app.post('/api/admin/taobao-test',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  const o={configured:!!AK,actor:AA,id:itemId(link)};
- try{const j=await rawAny(link);o.parsed=parseItem(j);o.raw=s(JSON.stringify(j),6000)}catch(e){o.error=e.message}r.json(o)});
+ try{const j=await rawAny(link);o.actor=j.__actor||AA;o.parsed=parseItem(j);o.raw=s(JSON.stringify(j),6000)}catch(e){o.error=e.message}r.json(o)});
 app.post('/api/translate',auth,async(q,r)=>{try{r.json({text:await tr(s(q.body&&q.body.text,1500))})}catch(e){r.status(502).json({error:'Tərcümə alınmadı'})}});
 
 app.get('/api/admin/catalog',auth,(q,r)=>r.json({list:cats(),counts:Object.fromEntries(cats().map(c=>[c.name,db.products.filter(p=>p.c===c.name).length]))}));
