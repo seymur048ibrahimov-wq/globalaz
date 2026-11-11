@@ -1,4 +1,4 @@
-// GlobalAz server v2: mağaza + admin panel + kataloq + sifarişlər (addım tarixçəsi, Taobao agent). İşə salmaq: npm install && npm start
+// GlobalAz server v3 (Taobao ilə bire-bir: variant qiymətləri, stok, brend): mağaza + admin panel + kataloq + sifarişlər (addım tarixçəsi, Taobao agent). İşə salmaq: npm install && npm start
 const fs=require('fs'),path=require('path'),crypto=require('crypto'),express=require('express');
 try{for(const l of fs.readFileSync(path.join(__dirname,'.env'),'utf8').split(/\r?\n/)){const m=l.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/);if(m&&!(m[1] in process.env))process.env[m[1]]=m[2].replace(/^["']|["']$/g,'')}}catch{}
 const E=process.env,PORT=E.PORT||3000,PASS=E.ADMIN_PASSWORD||'admin123';
@@ -14,11 +14,14 @@ const okTok=t=>{const[a,b]=String(t||'').split('.');return +a>Date.now()&&b===si
 const auth=(q,r,n)=>okTok(q.get('x-token'))?n():r.status(401).json({error:'Giriş tələb olunur'});
 const pcfg=()=>({...cfg,...Object.fromEntries(Object.entries(db.settings).filter(([k])=>k in cfg))});
 const up=p=>{const c=pcfg();return p.pr>0?p.pr:((p.cny*c.rate)*(1+c.margin/100)+p.kg*c.cargo)*(1+c.cust/100)};
+// Seçilmiş variantın qiyməti: variantın öz qiyməti (₼) > məhsulun sabit qiyməti (₼) > variantın ¥ qiymətindən hesablama
+const skuOf=(p,i)=>Array.isArray(p.skus)&&Number.isInteger(i)&&i>=0?p.skus[i]:null;
+const upS=(p,sk)=>sk?(sk.pr>0?sk.pr:p.pr>0?p.pr:up({...p,pr:0,cny:sk.cny})):up(p);
 const H=x=>crypto.createHash('sha256').update(String(x)).digest('hex'),fails={};
 const DEFCATS=[['Qadın geyimləri','women'],['Kişi geyimləri','men'],['Ayaqqabı','shoe'],['Çanta və aksesuar','bag'],['Gözəllik və baxım','beauty'],['Telefon və rəqəmsal','phone'],['Məişət texnikası','appliance'],['Ev və dekor','home'],['Mətbəx','kitchen'],['Ana və uşaq','baby'],['Oyuncaqlar','toy'],['İdman və turizm','sport'],['Avto məhsulları','car'],['Zinət və saatlar','jewel'],['Ev heyvanları','pet'],['Kitab və hobbi','book'],['Digər','other']].map(([name,icon],i)=>({id:'c'+(i+1),name,icon}));
 const cats=()=>Array.isArray(db.cats)&&db.cats.length?db.cats:DEFCATS;
 const hist=(o,k,v,n)=>{(o.hist=o.hist||[]).push({t:new Date().toISOString(),k,v:s(v,80),n:s(n||'',200)})};
-const app=express();app.use(express.json({limit:'400kb'}));
+const app=express();app.use(express.json({limit:'1mb'}));
 
 // ---- Google (Firebase) giriş: token yoxlanışı (əlavə paket lazım deyil) ----
 const FB_KEY=E.FIREBASE_API_KEY||'AIzaSyArQxfkmpcVNs_6uV-6q3EZqWh6KTd9g78',gcache=new Map();
@@ -48,7 +51,13 @@ async function tr(t,from='auto',to='az'){
 // ---- Taobao məhsul məlumatı: Apify ----
 const itemId=l=>(String(l).match(/[?&](?:id|offerId)=(\d{6,})/)||String(l).match(/offer\/(\d{6,})/)||[])[1]||'';
 const fixU=u=>{u=String(u||'').trim();return u.startsWith('//')?'https:'+u:u};
-const num=v=>{const m=String(v==null?'':v).match(/\d+(?:\.\d+)?/);return m?+m[0]:0};
+const num=v=>{const m=String(v==null?'':v).replace(/,/g,'').match(/\d+(?:\.\d+)?/);return m?+m[0]:0};
+const cnt=v=>{const t=String(v==null?'':v);let n=num(t);if(/万|w/i.test(t))n*=1e4;else if(/千|k/i.test(t))n*=1e3;return Math.round(n)};
+const CJK=/[\u4e00-\u9fff]/;
+const SKU_PRICE=['cnyPrice','promotionPrice','promotion_price','salePrice','sale_price','priceCny','price','discountPrice'];
+const SKU_ORIG=['originalPrice','original_price','orginal_price','orgPrice','marketPrice','reservePrice'];
+const SKU_STOCK=['quantity','stock','inventory','stockQuantity','amountOnSale','canBookCount','available'];
+const SKU_IMG=['imageUrl','image','imgUrl','img','picUrl','pic','pic_url'];
 function dig(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(x[k]!=null&&x[k]!==''&&typeof x[k]!=='object')return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
 function digArr(o,keys){const q=[o];let n=0;while(q.length&&n++<5000){const x=q.shift();if(x&&typeof x==='object'){if(!Array.isArray(x))for(const k of keys){if(Array.isArray(x[k])&&x[k].length)return x[k]}for(const v of Object.values(x))if(v&&typeof v==='object')q.push(v)}}}
 const pick1=(o,ks)=>{for(const k of ks)if(o&&o[k]!=null&&typeof o[k]!=='object'&&o[k]!=='')return o[k]};
@@ -65,22 +74,45 @@ function parseItem(j){
  const img=fixU(dig(j,['coverImage','pic_url','main_img','image','img','pic']))||imgs[0]||'';
  imgs=[...new Set(imgs)].filter(u=>u!==img).slice(0,12);
  let desc=s(String(dig(j,['desc_short','description','desc'])||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(),600);
- if(!desc){const seen=new Set(),L=[];for(const a of(digArr(j,['productAttrs'])||[])){const n=s(a&&a.attributeName,40),v=s(a&&a.value,80),k=n+'|'+v;if(!n||!v||/color classification/i.test(n)||seen.has(k))continue;seen.add(k);L.push(n+': '+v)}desc=s(L.slice(0,12).join('\n'),600)}
- let opts=[];
- if(skus.length){const m=new Map(),vim=new Map();for(const k of skus)for(const p of((k&&k.properties)||[])){const n=s(p&&(p.displayName||p.name),30).replace(/[:：]/g,' ').trim(),v=s(p&&(p.displayValue||p.value),80).replace(/[,，、]/g,' ').trim();if(!n||!v)continue;if(!m.has(n))m.set(n,[]);const x=m.get(n);if(!x.includes(v))x.push(v);
-   const pi=fixU(pick1(p,['imageUrl','image','imgUrl','img','picUrl','pic']))||fixU(pick1(k,['imageUrl','image','imgUrl','picUrl']));if(pi&&p&&!/size|尺|码/i.test(n)){const K=n+'\u0001'+v;if(!vim.has(K))vim.set(K,pi)}}
-  opts=[...m].slice(0,5).map(([n,v])=>({n,v:v.slice(0,30),vi:v.slice(0,30).map(x=>vim.get(n+'\u0001'+x)||'')}))}
- else{const oa=digArr(j,['sku_props','props_list','skuProps','sku_base','props'])||[];
-  opts=oa.slice(0,5).map(o=>{const n=s(pick1(o,['name','prop_name','propName','title']),30);
+ // (xüsusiyyətlər ayrıca cədvəldə göstərilir, təsvirə təkrar yazılmır)
+ // Variantlar: hər qrupun dəyərləri + hər kombinasiyanın (SKU) öz qiyməti, stoku, şəkli
+ let opts=[],sk=[];
+ const stockOf=k=>{const v=pick1(k,SKU_STOCK);if(v==null||v==='')return -1;if(v===true)return 999;if(v===false)return 0;return cnt(v)};
+ if(skus.length){const m=new Map(),vim=new Map();
+  const propsOf=k=>((k&&(k.properties||k.props||k.attributes||k.specs))||[]).map(p=>({n:s(p&&(p.displayName||p.name||p.propName||p.attributeName),30).replace(/[:：]/g,' ').trim(),v:s(p&&(p.displayValue||p.value||p.valueName||p.propValue),80).replace(/[,，、]/g,' ').trim(),i:fixU(pick1(p,SKU_IMG))})).filter(x=>x.n&&x.v);
+  for(const k of skus)for(const p of propsOf(k)){if(!m.has(p.n))m.set(p.n,[]);const x=m.get(p.n);if(!x.includes(p.v))x.push(p.v);
+   const pi=p.i||fixU(pick1(k,SKU_IMG));if(pi&&!/size|尺|码|尺寸/i.test(p.n)){const K=p.n+'\u0001'+p.v;if(!vim.has(K))vim.set(K,pi)}}
+  const groups=[...m].slice(0,5).map(([n,v])=>[n,v.slice(0,30)]);
+  opts=groups.map(([n,v])=>({n,v,vi:v.map(x=>vim.get(n+'\u0001'+x)||''),nz:n,vz:[...v]}));
+  for(const k of skus){const pr=propsOf(k);const idx=groups.map(([n,v])=>{const f=pr.find(x=>x.n===n);return f?v.indexOf(f.v):-1});
+   if(idx.some(x=>x<0)&&groups.length)continue;
+   const c=num(pick1(k,SKU_PRICE));if(!(c>0))continue;
+   sk.push({k:idx,cny:c,o:num(pick1(k,SKU_ORIG))||0,st:stockOf(k),img:fixU(pick1(k,SKU_IMG))})}}
+ else{const sb=digArr(j,['sku_base','skuBase','skuList','sku_list'])||[],oa=digArr(j,['sku_props','skuProps','props_list','props'])||[];
+  const g2=oa.slice(0,5).map(o=>{const n=s(pick1(o,['name','prop_name','propName','title']),30);
    const va=Array.isArray(o&&o.values)?o.values:Array.isArray(o&&o.value)?o.value:Array.isArray(o&&o.props)?o.props:[];
-   const v=va.slice(0,30).map(x=>s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),80)).filter(Boolean);return{n,v,vi:v.map(()=>'')}}).filter(o=>o.n&&o.v.length)}
+   const vals=va.slice(0,30).map(x=>({v:s(typeof x==='string'?x:pick1(x,['name','value','valueName','text']),80),id:String(typeof x==='object'&&x?pick1(x,['vid','valueId','id'])||'':''),i:typeof x==='object'?fixU(pick1(x,SKU_IMG)):''})).filter(x=>x.v);
+   return{n,pid:String(pick1(o,['pid','propId','id'])||''),vals}}).filter(o=>o.n&&o.vals.length);
+  opts=g2.map(o=>({n:o.n,v:o.vals.map(x=>x.v),vi:o.vals.map(x=>x.i||''),nz:o.n,vz:o.vals.map(x=>x.v)}));
+  for(const k of sb){const path=String(pick1(k,['propPath','prop_path','properties','skuPath'])||'');if(!path)continue;
+   const pairs=path.split(';').map(x=>x.split(':'));
+   const idx=g2.map(o=>{const f=pairs.find(([a,b])=>(!o.pid||a===o.pid)&&o.vals.some(x=>x.id===b));return f?o.vals.findIndex(x=>x.id===f[1]):-1});
+   if(idx.some(x=>x<0))continue;const c=num(pick1(k,SKU_PRICE));if(!(c>0))continue;
+   sk.push({k:idx,cny:c,o:num(pick1(k,SKU_ORIG))||0,st:stockOf(k),img:''})}}
+ sk=sk.slice(0,400);
  // əlavə: xüsusiyyətlər, satıcı, video, ətraflı şəkillər
- const attrs=[],seen2=new Set();for(const a of(digArr(j,['productAttrs','attributes','props_list_attrs','specs'])||[])){const n=s(a&&(a.attributeName||a.name||a.key),40),v=s(a&&(a.value||a.val),120),k=n+'|'+v;if(!n||!v||/color classification/i.test(n)||seen2.has(k))continue;seen2.add(k);attrs.push({n,v})}
+ const attrs=[],seen2=new Set();for(const a of(digArr(j,['productAttrs','attributes','props_list_attrs','specs'])||[])){const n=s(a&&(a.attributeName||a.name||a.key),40),v=s(a&&(a.value||a.val),120),k=n+'|'+v;if(!n||!v||/color classification|颜色分类|尺码|尺寸/i.test(n)||seen2.has(k))continue;seen2.add(k);attrs.push({n,v})}
  const shop=s(dig(j,['shopName','shop_name','sellerNick','seller_nick','storeName','seller']),80);
+ let brand=s(dig(j,['brand','brandName','brand_name']),60);
+ if(!brand){const b=attrs.find(a=>/品牌|brand|marka/i.test(a.n));if(b)brand=s(b.v,60)}
+ const sold=cnt(dig(j,['sold','soldCount','sales','totalSold','sellCount','vagueSellCount','monthSales','month_sales','salesVolume','soldQuantity']));
+ const spO=sk.map(x=>x.o).filter(x=>x>0);
+ const cnyOrig=spO.length?Math.min(...spO):num(dig(j,['originalPrice','original_price','orginal_price','reserve_price','marketPrice']));
  const vd=fixU(dig(j,['video','videoUrl','video_url','mainVideo']));const video=/^https:\/\//.test(vd)?s(vd,500):'';
  const da=digArr(j,['desc_imgs','detail_images','detailImages','descImages','description_images','descImgs'])||[];
  const dimgs=[...new Set(da.map(x=>fixU(typeof x==='string'?x:pick1(x,['url','img','src']))).filter(u=>/^https:\/\//.test(u)))].slice(0,20);
- return{title,img,imgs,cny,cnyMax,desc,opts,attrs:attrs.slice(0,40),shop,video,dimgs}}
+ const skMin=sk.length?Math.min(...sk.map(x=>x.cny)):0,skMax=sk.length?Math.max(...sk.map(x=>x.cny)):0;
+ return{title,img,imgs,cny:skMin||cny,cnyMax:skMax||cnyMax,cnyOrig:cnyOrig>(skMin||cny)?cnyOrig:0,desc,opts,skus:sk,brand,sold,attrs:attrs.slice(0,40),shop,video,dimgs}}
 // ---- Apify: token yalnız .env faylında (APIFY_TOKEN) ----
 const AK=E.APIFY_TOKEN||'',AA=(E.APIFY_ACTOR||'khadinakbar~taobao-product-detail-scraper').replace('/','~');
 async function apifyRaw(link){
@@ -93,14 +125,16 @@ const rawAny=link=>apifyRaw(link);
 async function trOpts(opts){if(!opts.length)return opts;
  try{const L=[];opts.forEach(o=>{L.push(o.n,...o.v)});if(L.join('\n').length>1400)return opts;
   const t=(await tr(L.join('\n'))).split('\n');if(t.length!==L.length)return opts;
-  let i=0;return opts.map(o=>({n:s(t[i++].replace(/[:：]/g,' ').trim()||o.n,30),v:o.v.map(x=>s(t[i++].replace(/[,，、]/g,' ').trim()||x,80)),vi:o.vi||[]}))}catch{return opts}}
+  let i=0;const T=(orig,lim,re)=>{const x=t[i++];return CJK.test(orig)?s(String(x||'').replace(re,' ').trim()||orig,lim):orig};return opts.map(o=>({n:T(o.n,30,/[:：]/g),v:o.v.map(x=>T(x,80,/[,，、]/g)),vi:o.vi||[],nz:o.nz||o.n,vz:o.vz||o.v}))}catch{return opts}}
 async function trAttrs(a){if(!a.length)return a;try{const L=[];a.forEach(x=>{L.push(x.n,x.v)});const out=[];for(let i=0;i<L.length;){let j=i,len=0;while(j<L.length&&len+L[j].length<1300){len+=L[j].length+1;j++}if(j===i)j=i+1;const t=(await tr(L.slice(i,j).join('\n'))).split('\n');if(t.length!==j-i)return a;out.push(...t);i=j}return a.map((x,k)=>({n:s(out[2*k]||x.n,40),v:s(out[2*k+1]||x.v,120)}))}catch{return a}}
 
 // ---- Mağaza (açıq): src = gizli məhsul ID, Taobao linki müştəriyə göstərilmir ----
-app.get('/api/products',(q,r)=>r.json({cfg:pcfg(),cats:cats(),list:db.products.map(p=>({n:p.az||p.zh,c:p.c,img:p.img,imgs:p.imgs||[],desc:p.desc||'',opts:p.opts||[],attrs:p.attrs||[],video:p.video||'',dimgs:p.dimgs||[],cny:p.cny,pr:p.pr,kg:p.kg,src:p.id,from:'ga'}))}));
+app.get('/api/products',(q,r)=>r.json({cfg:pcfg(),cats:cats(),list:db.products.map(p=>({n:p.az||p.zh,c:p.c,img:p.img,imgs:p.imgs||[],desc:p.desc||'',opts:(p.opts||[]).map(o=>({n:o.n,v:o.v,vi:o.vi||[]})),skus:(p.skus||[]).map(x=>({k:x.k,cny:x.cny,o:x.o||0,st:x.st==null?-1:x.st,img:x.img||'',pr:x.pr||0})),brand:p.brand||'',sold:p.sold||0,cnyOrig:p.cnyOrig||0,attrs:p.attrs||[],video:p.video||'',dimgs:p.dimgs||[],cny:p.cny,pr:p.pr,kg:p.kg,src:p.id,from:'ga',t:p.t||0}))}));
 app.post('/api/orders',async(q,r)=>{const b=q.body||{};const gu=await gUser(q);if(!gu)return r.status(401).json({error:'Əvvəlcə Google ilə daxil olun'});
  if(!s(b.name)||!s(b.phone)||!s(b.address)||!Array.isArray(b.items)||!b.items.length)return r.status(400).json({error:'Məlumat çatışmır'});
- const items=b.items.slice(0,50).map(i=>{const p=db.products.find(x=>x.id===i.src)||{};return{n:s(i.n),q:Math.max(1,+i.q|0),u:p.id?+up(p).toFixed(2):(+i.u||0),opt:s(i.opt,150),link:p.link||'',zh:p.zh||'',img:p.img||'',shop:p.shop||'',cny:p.cny||0,kg:p.kg||0}});
+ const items=b.items.slice(0,50).map(i=>{const p=db.products.find(x=>x.id===i.src)||{};const sk=p.id?skuOf(p,+i.sk):null;
+  const optZh=sk&&Array.isArray(p.opts)?sk.k.map((v,g)=>{const o=p.opts[g];return o?(o.nz||o.n)+': '+((o.vz||o.v)[v]||o.v[v]||''):''}).filter(Boolean).join('; '):'';
+  return{n:s(i.n),q:Math.max(1,+i.q|0),u:p.id?+upS(p,sk).toFixed(2):(+i.u||0),opt:s(i.opt,150),optZh:s(optZh,200),sk:sk?+i.sk:-1,link:p.link||'',zh:p.zh||'',img:s(i.img,500)||p.img||'',shop:p.shop||'',cny:sk?sk.cny:(p.cny||0),kg:p.kg||0}});
  const total=+items.reduce((a,i)=>a+i.u*i.q,0).toFixed(2);
  const o={id:uid(),uid:gu.uid,email:gu.email,gname:gu.name,no:s(b.no,30),date:new Date().toISOString(),name:s(b.name),phone:s(b.phone,40),city:s(b.city,80),address:s(b.address,300),cnote:s(b.cnote,300),items,total,status:'new',pay:'none',track:'',note:'',cost:0,taobaoNo:'',agentSent:false,hist:[]};
  hist(o,'status','new','Müştəri sifariş verdi');db.orders.unshift(o);save();
@@ -125,9 +159,11 @@ app.patch('/api/orders/:id',auth,(q,r)=>{const o=db.orders.find(x=>x.id===q.para
 app.get('/api/admin/products',auth,(q,r)=>r.json({list:db.products}));
 const clean=b=>({link:canon(b.link),zh:s(b.zh,300),az:s(b.az,300),c:s(b.c,40)||'Digər',img:s(b.img,500),cny:+b.cny||0,kg:+b.kg||0.5,pr:+b.pr||0,desc:s(b.desc,2000),
  imgs:(Array.isArray(b.imgs)?b.imgs:[]).map(x=>s(x,500)).filter(Boolean).slice(0,12),
- opts:(Array.isArray(b.opts)?b.opts:[]).slice(0,6).map(o=>{const v=[],vi=[];(Array.isArray(o.v)?o.v:[]).slice(0,40).forEach((x,i)=>{const t=s(x,80).trim();if(t){v.push(t);vi.push(s((o.vi||[])[i],500))}});return{n:s(o.n,30),v,vi}}).filter(o=>o.n&&o.v.length),
+ opts:(Array.isArray(b.opts)?b.opts:[]).slice(0,6).map(o=>{const v=[],vi=[],vz=[];(Array.isArray(o.v)?o.v:[]).slice(0,40).forEach((x,i)=>{const t=s(x,80).trim();if(t){v.push(t);vi.push(s((o.vi||[])[i],500));vz.push(s((o.vz||[])[i],80))}});return{n:s(o.n,30),v,vi,nz:s(o.nz,30),vz}}).filter(o=>o.n&&o.v.length),
  attrs:(Array.isArray(b.attrs)?b.attrs:[]).slice(0,40).map(a=>({n:s(a&&a.n,40).trim(),v:s(a&&a.v,160).trim()})).filter(a=>a.n&&a.v),
- shop:s(b.shop,80),video:/^https:\/\//.test(String(b.video||''))?s(b.video,500):'',
+ shop:s(b.shop,80),brand:s(b.brand,60).trim(),sold:Math.max(0,+b.sold|0),cnyOrig:+b.cnyOrig||0,t:+b.t||Date.now(),
+ skus:(Array.isArray(b.skus)?b.skus:[]).slice(0,400).map(x=>({k:(Array.isArray(x&&x.k)?x.k:[]).slice(0,6).map(v=>v|0),cny:+(x&&x.cny)||0,o:+(x&&x.o)||0,st:x&&x.st!=null&&x.st!==''?(+x.st|0):-1,img:s(x&&x.img,500),pr:+(x&&x.pr)||0})).filter(x=>x.cny>0||x.pr>0),
+ video:/^https:\/\//.test(String(b.video||''))?s(b.video,500):'',
  dimgs:(Array.isArray(b.dimgs)?b.dimgs:[]).map(x=>s(x,500)).filter(x=>/^https:\/\//.test(x)).slice(0,20)});
 app.post('/api/admin/products',auth,(q,r)=>{const p={id:uid(),...clean(q.body)};db.products.unshift(p);save();r.json(p)});
 app.put('/api/admin/products/:id',auth,(q,r)=>{const i=db.products.findIndex(x=>x.id===q.params.id);if(i<0)return r.status(404).json({error:'Tapılmadı'});db.products[i]={id:q.params.id,...clean(q.body)};save();r.json(db.products[i])});
@@ -135,7 +171,7 @@ app.delete('/api/admin/products/:id',auth,(q,r)=>{db.products=db.products.filter
 app.post('/api/fetch',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  let out=null,apiError='';
  try{const p=parseItem(await rawAny(link));if(p.title)out={...p,link,via:'api'}}catch(e){apiError=e.message}
- if(out){try{if(out.desc)out.desc=await tr(out.desc)}catch{}out.opts=await trOpts(out.opts);out.attrs=await trAttrs(out.attrs||[]);if(out.shop&&/[\u4e00-\u9fff]/.test(out.shop)){try{out.shop=await tr(out.shop)}catch{}}return r.json(out)}
+ if(out){try{if(out.desc)out.desc=await tr(out.desc)}catch{}out.opts=await trOpts(out.opts);out.attrs=await trAttrs(out.attrs||[]);if(out.shop&&/[\u4e00-\u9fff]/.test(out.shop)){try{out.shop=await tr(out.shop)}catch{}}if(out.brand&&CJK.test(out.brand)){try{out.brand=s(await tr(out.brand),60)}catch{}}return r.json(out)}
  try{r.json({...await lookup(link),via:'page',apiError})}catch(e){r.json({link,title:'',img:'',cny:0,blocked:true,via:'page',apiError})}});
 app.post('/api/admin/taobao-test',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  const o={configured:!!AK,actor:AA,id:itemId(link)};
