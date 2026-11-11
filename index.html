@@ -134,6 +134,28 @@ dialog.wide{width:min(1020px,calc(100% - 24px))}
 .pl[aria-pressed="true"]{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold);font-weight:700}
 .sw{width:54px;height:54px;padding:0;border:1px solid var(--ln);border-radius:6px;overflow:hidden;background:#fff}.sw img{width:100%;height:100%;object-fit:cover;display:block}
 .sw[aria-pressed="true"]{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold)}
+.sw{width:auto;height:auto;min-width:64px;max-width:92px;display:flex;flex-direction:column;align-items:stretch;padding:0;text-align:center;position:relative}
+.sw img{width:100%;height:64px}
+.sw span{display:block;font-size:11.5px;line-height:1.25;padding:4px 5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sw.x,.pl.x{opacity:.38;cursor:not-allowed;position:relative}
+.pl.x{text-decoration:line-through}
+.sw.x::after{content:"Bitib";position:absolute;top:4px;left:4px;font-size:10px;font-weight:700;background:rgba(0,0,0,.7);color:#fff;padding:1px 5px;border-radius:4px}
+.pl.dim,.sw.dim{border-style:dashed}
+.pbx{display:grid;gap:6px}
+.prow{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.old{font-size:16px;color:var(--mu);text-decoration:line-through}
+.dsc{font-size:12.5px;font-weight:700;color:#fff;background:#E5484D;border-radius:999px;padding:3px 9px}
+.stk{font-size:13px;font-weight:600}
+.stk.ok{color:#1a9d4d}.stk.lo{color:#d97706}.stk.no{color:#E5484D}
+.brd{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);border:1px solid var(--gold);border-radius:999px;padding:3px 10px;width:max-content}
+.meta{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12.5px;color:var(--mu)}
+.cbrd{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .old{font-size:12px;margin-left:6px}
+.from{font-size:11px;color:var(--mu);margin-left:2px;font-family:var(--sans)}
+.sold{font-size:11.5px;color:var(--mu)}
+.card .im{position:relative}
+.card .dtag{position:absolute;left:8px;top:8px;font-size:11px;font-weight:700;color:#fff;background:#E5484D;border-radius:6px;padding:2px 7px}
+.selsum{font-size:12.5px;color:var(--mu);background:rgba(0,0,0,.03);border:1px solid var(--ln);border-radius:8px;padding:8px 10px}
 .buy{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center}.buy .qty{margin:0}
 .perks{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--ln);font-size:13px;color:var(--mu)}.perks div{display:flex;gap:12px;align-items:center}.perks .i{color:var(--gold);font-size:20px}
 .sec{margin-top:24px}.sec h4{margin:0 0 10px;font:500 20px var(--serif)}
@@ -314,11 +336,21 @@ const fmt=n=>n.toFixed(2)+" ₼",mny=n=>n.toFixed(2)+"<small>₼</small>";
 const cost=p=>p.usd>0?p.usd*S.usd:p.cny*S.rate;
 const price=p=>p.pr>0?p.pr:(cost(p)*(1+S.margin/100)+p.kg*S.cargo)*(1+S.cust/100);
 const save=()=>st("uz_c",cart);
+/* Variant (SKU) qiymətləri — Taobao-dakı kimi hər rəng/ölçü öz qiyməti ilə */
+const priceS=(p,sk)=>sk?(sk.pr>0?sk.pr:p.pr>0?p.pr:price({...p,pr:0,usd:0,cny:sk.cny})):price(p);
+const live=p=>(p.skus||[]).filter(x=>x.st!==0);
+const minP=p=>{const L=live(p).length?live(p):(p.skus||[]);return L.length?Math.min(...L.map(x=>priceS(p,x))):price(p)};
+const maxP=p=>{const L=live(p).length?live(p):(p.skus||[]);return L.length?Math.max(...L.map(x=>priceS(p,x))):price(p)};
+const oldOf=(p,sk)=>{if(p.pr>0||(sk&&sk.pr>0))return 0;const o=sk?sk.o:p.cnyOrig;if(!(o>0))return 0;const v=price({...p,pr:0,usd:0,cny:o}),c=priceS(p,sk);return v>c+0.009?v:0};
+const soldTx=n=>n>=10000?Math.floor(n/10000)*10+" min+ satılıb":n>=1000?Math.floor(n/1000)+" min+ satılıb":n>0?n+" satılıb":"";
+const soldOut=p=>(p.skus||[]).length>0&&!live(p).length;
 function toast(t){const x=$("toast");x.textContent=t;x.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>x.classList.remove("on"),2200)}
 const ok=p=>p&&typeof p.n==="string"&&(+p.cny>0||+p.pr>0||+p.usd>0);
 const imgUrl=v=>{const m=String(Array.isArray(v)?v[0]:v||"").match(/https?:\/\/[^\s"'\]\[,]+/);return m?m[0].replace(/^http:/,"https:").slice(0,500):""};
 const norm=p=>({n:p.n.slice(0,120),c:String(p.c||"Digər").slice(0,40),cny:+p.cny||0,usd:+p.usd||0,pr:+p.pr||0,kg:+p.kg||0.5,src:String(p.src||"").slice(0,300),from:String(p.from||"").slice(0,10),img:imgUrl(p.img),imgs:(Array.isArray(p.imgs)?p.imgs:[]).map(imgUrl).filter(Boolean),desc:String(p.desc||"").slice(0,2000),
  opts:(Array.isArray(p.opts)?p.opts:[]).map(o=>({n:String(o.n||""),v:(o.v||[]).map(String),vi:(o.v||[]).map((_,i)=>imgUrl((o.vi||[])[i]))})),
+ skus:(Array.isArray(p.skus)?p.skus:[]).map(x=>({k:(Array.isArray(x.k)?x.k:[]).map(v=>v|0),cny:+x.cny||0,o:+x.o||0,st:x.st==null?-1:+x.st,img:imgUrl(x.img),pr:+x.pr||0})).filter(x=>x.cny>0||x.pr>0),
+ brand:String(p.brand||"").slice(0,60),sold:+p.sold||0,cnyOrig:+p.cnyOrig||0,
  attrs:(Array.isArray(p.attrs)?p.attrs:[]).map(a=>({n:String(a.n||""),v:String(a.v||"")})).filter(a=>a.n&&a.v),video:imgUrl(p.video),dimgs:(Array.isArray(p.dimgs)?p.dimgs:[]).map(imgUrl).filter(Boolean)});
 const hid=(s,i)=>{if(!s)return 5e6+i;let h=0;for(const ch of String(s))h=(h*31+ch.charCodeAt(0))>>>0;return 1e6+h%9e8};
 const mergeP=()=>{P=CJL.map((p,i)=>({...p,id:hid(p.src,i)}))};
@@ -332,15 +364,15 @@ function render(){
  if(!CL.includes(cat))cat="Hamısı";
  $("cats").innerHTML="<h2>Kataloq</h2>"+L.map((x,i)=>`<button class="chip" aria-pressed="${x.name===cat}" onclick="setCat(${i})">${svg(x.icon)}<span class="cn">${esc(x.name)}</span><span class="ct">${cnt(x.name)}</span></button>`).join("");
  const q=$("q").value.trim().toLowerCase();let l=P.filter(p=>(cat==="Hamısı"||p.c===cat)&&p.n.toLowerCase().includes(q));
- {const so=$("so").value;if(so==="a")l.sort((x,y)=>price(x)-price(y));if(so==="d")l.sort((x,y)=>price(y)-price(x));if(so==="f")l=l.filter(p=>fav.includes(p.id))}
+ {const so=$("so").value;if(so==="a")l.sort((x,y)=>minP(x)-minP(y));if(so==="d")l.sort((x,y)=>minP(y)-minP(x));if(so==="f")l=l.filter(p=>fav.includes(p.id))}
  $("rc").textContent=l.length+" məhsul";
- $("grid").innerHTML=l.length?l.map(p=>`<article class="card"><button class="fv" aria-label="Sevimlilərə əlavə et" aria-pressed="${fav.includes(p.id)}" onclick="tf(${p.id})">${svg("heart",fav.includes(p.id)?"fill":"")}</button><div class="im" onclick="openP(${p.id})">${pic(p)}</div><div class="cb"><h3 onclick="openP(${p.id})">${esc(p.n)}</h3><div class="pr"><span class="price">${mny(price(p))}</span><button class="add" aria-label="Səbətə at" onclick="${p.opts&&p.opts.length?`openP(${p.id})`:`addP(${p.id})`}">${svg("bag")}</button></div><div class="sub">${svg("truck")}15-25 gün · gömrük daxil</div></div></article>`).join(""):`<div class="empty">${P.length?"Heç nə tapılmadı. Başqa söz yazın.":"Kolleksiya yüklənir…"}</div>`;
+ $("grid").innerHTML=l.length?l.map(p=>`<article class="card"><button class="fv" aria-label="Sevimlilərə əlavə et" aria-pressed="${fav.includes(p.id)}" onclick="tf(${p.id})">${svg("heart",fav.includes(p.id)?"fill":"")}</button><div class="im" onclick="openP(${p.id})">${pic(p)}${(()=>{const sk=(p.skus||[]).find(x=>x.st!==0&&Math.abs(priceS(p,x)-minP(p))<0.01),o=oldOf(p,sk||null);return o?`<span class="dtag">-${Math.round((1-minP(p)/o)*100)}%</span>`:soldOut(p)?`<span class="dtag" style="background:#555">Bitib</span>`:""})()}</div><div class="cb">${p.brand?`<div class="cbrd">${esc(p.brand)}</div>`:""}<h3 onclick="openP(${p.id})">${esc(p.n)}</h3><div class="pr"><span class="price">${mny(minP(p))}${maxP(p)>minP(p)+0.009?`<span class="from">-dən</span>`:""}</span><button class="add" aria-label="Səbətə at" onclick="${p.opts&&p.opts.length?`openP(${p.id})`:`addP(${p.id})`}">${svg("bag")}</button></div><div class="sub">${svg("truck")}15-25 gün · gömrük daxil</div>${p.sold?`<div class="sold">🔥 ${soldTx(p.sold)}</div>`:""}</div></article>`).join(""):`<div class="empty">${P.length?"Heç nə tapılmadı. Başqa söz yazın.":"Kolleksiya yüklənir…"}</div>`;
  renderCart()}
 function setCat(i){cat=CL[i];render();if(innerWidth<=860)scrollTo({top:0})}
 
-function addP(id,opt,q,im){const p=P.find(x=>x.id===id);if(!p)return;const o=opt||"",n=Math.max(1,q|0||1),ex=cart.find(i=>i.id===id&&(i.opt||"")===o);
- if(ex)ex.q+=n;else cart.push({id,n:p.n,u:price(p),q:n,src:p.src||"",opt:o,img:im||p.img||""});
- save();renderCart();window.ga&&ga("add_to_cart",{currency:"AZN",value:price(p),items:[{item_name:p.n,item_variant:o}]});toast("Səbətə əlavə olundu")}
+function addP(id,opt,q,im,ski){const p=P.find(x=>x.id===id);if(!p)return;const o=opt||"",n=Math.max(1,q|0||1),sk=Number.isInteger(ski)&&ski>=0?(p.skus||[])[ski]:null,u=priceS(p,sk),ex=cart.find(i=>i.id===id&&(i.opt||"")===o);
+ if(ex){ex.q+=n;ex.u=u}else cart.push({id,n:p.n,u,q:n,src:p.src||"",opt:o,img:im||p.img||"",sk:sk?ski:-1});
+ save();renderCart();window.ga&&ga("add_to_cart",{currency:"AZN",value:u,items:[{item_name:p.n,item_variant:o}]});toast("Səbətə əlavə olundu")}
 function chg(x,d){const i=cart[x];if(!i)return;i.q+=d;if(i.q<1)cart.splice(x,1);save();renderCart()}
 function rmv(x){cart.splice(x,1);save();renderCart()}
 const total=()=>cart.reduce((a,i)=>a+i.u*i.q,0)+(cart.length?S.ship*S.rate:0);
@@ -363,33 +395,66 @@ async function send(){if(!U){toast("Əvvəlcə daxil olun");authBtn();return}con
  if(!n||!p||!c||!a){toast("Ad, telefon, şəhər və ünvanı doldurun");return}
  st("uz_prof",{n,p,c,a});$("sendB").disabled=true;
  const no="GA-"+Date.now().toString(36).toUpperCase();let sent=0;
- try{const tk=await fbTok(),r=await fetch((S.api||"")+"/api/orders",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+tk},body:JSON.stringify({no,name:n,phone:p,city:c,address:a,cnote:m,total:total(),items:cart.map(i=>({src:i.src,n:i.n,q:i.q,u:i.u,opt:i.opt||""}))})});sent=r.ok;if(r.status===401){toast("Giriş vaxtı bitib, yenidən daxil olun");$("sendB").disabled=false;return}}catch(e){}
+ try{const tk=await fbTok(),r=await fetch((S.api||"")+"/api/orders",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+tk},body:JSON.stringify({no,name:n,phone:p,city:c,address:a,cnote:m,total:total(),items:cart.map(i=>({src:i.src,n:i.n,q:i.q,u:i.u,opt:i.opt||"",sk:i.sk==null?-1:i.sk,img:i.img||""}))})});sent=r.ok;if(r.status===401){toast("Giriş vaxtı bitib, yenidən daxil olun");$("sendB").disabled=false;return}}catch(e){}
  if(!sent){const t="Sifariş "+no+" (GlobalAz)\n\n"+cart.map((i,x)=>`${x+1}. ${i.n}${i.opt?" ("+i.opt+")":""} × ${i.q} = ${fmt(i.u*i.q)}`).join("\n")+`\n\nCəmi: ${fmt(total())}\n\nAd: ${n}\nTelefon: ${p}\nŞəhər: ${c}\nÜnvan: ${a}${m?"\nQeyd: "+m:""}`;window.open("https://wa.me/"+S.wa+"?text="+encodeURIComponent(t),"_blank","noopener")}
  if(sent)window.ga&&ga("purchase",{transaction_id:no,value:total(),currency:"AZN"});cart=[];save();DONE=no;renderCart()}
 function tf(id){fav=fav.includes(id)?fav.filter(x=>x!==id):[...fav,id];st("uz_f",fav);render()}
 
-/* product page */
+/* product page — Taobao ilə bire-bir: variant seçəndə qiymət, stok və şəkil dəyişir */
+const skI=(p,sel)=>(p.skus||[]).findIndex(x=>x.k.length===sel.length&&x.k.every((v,g)=>v===sel[g]));
+const freeV=(p,g,i)=>!(p.skus||[]).some(x=>x.k[g]===i);
+function vState(p,g,i,sel){if(!(p.skus||[]).length||freeV(p,g,i))return"ok";
+ const any=p.skus.filter(x=>x.k[g]===i&&x.st!==0);if(!any.length)return"x";
+ return any.some(x=>x.k.every((v,h)=>h===g||v===sel[h]||freeV(p,h,sel[h])))?"ok":"dim"}
 function openP(id){const p=P.find(x=>x.id===id);if(!p)return;
- const gal=[...new Set([p.img,...(p.imgs||[])].filter(Boolean))];PD={p,gal,sel:(p.opts||[]).map(()=>0),q:1};
+ const gal=[...new Set([p.img,...(p.imgs||[])].filter(Boolean))];
+ let sel=(p.opts||[]).map(()=>0);
+ if((p.skus||[]).length){const best=p.skus.find(x=>x.st!==0)||p.skus[0];if(best&&best.k.length===sel.length)sel=[...best.k]}
+ PD={p,gal,sel,q:1};
  const th=gal.map((u,i)=>`<button aria-pressed="${i===0}" aria-label="Şəkil ${i+1}" onclick="gset(${i})"><img src="${esc(u)}" alt="" referrerpolicy="no-referrer"></button>`).join("")+(p.video?`<button class="vd" aria-pressed="false" aria-label="Video" onclick="gset('v')">${svg("play","fill")}</button>`:"");
  $("pdB").innerHTML=`<div class="pd"><div><div class="main" id="mainv">${gal.length?`<img id="pm" src="${esc(gal[0])}" alt="" referrerpolicy="no-referrer">`:`<span class="ph" style="font-size:80px;color:var(--gl)">${svg(icOf(p.c))}</span>`}</div>${gal.length+(p.video?1:0)>1?`<div class="thumbs" id="thv">${th}</div>`:""}</div>
- <div class="inf"><h3>${esc(p.n)}</h3><div class="big">${mny(price(p))}</div>
+ <div class="inf">${p.brand?`<span class="brd">${svg("tag")}${esc(p.brand)}</span>`:""}<h3>${esc(p.n)}</h3>
+ ${p.sold?`<div class="meta"><span>🔥 ${soldTx(p.sold)}</span><span>✅ Orijinal satıcıdan</span></div>`:""}
+ <div class="pbx"><div class="prow"><div class="big" id="pdPr">${mny(minP(p))}</div><span class="old" id="pdOld"></span><span class="dsc" id="pdDs" hidden></span></div><div class="stk" id="pdSt"></div></div>
  ${(p.opts||[]).map((o,g)=>`<div class="og"><div class="on">${esc(o.n)}: <b id="sv${g}">${esc(o.v[0])}</b></div><div class="ov" id="og${g}"></div></div>`).join("")}
- <div class="buy"><div class="qty"><button onclick="pq(-1)" aria-label="Azalt">${svg("minus")}</button><span id="pqv">1</span><button onclick="pq(1)" aria-label="Artır">${svg("plus")}</button></div><button class="btn" onclick="addFromP()">${svg("bag")}Səbətə at</button></div>
+ ${(p.opts||[]).length?`<div class="selsum" id="pdSel"></div>`:""}
+ <div class="buy"><div class="qty"><button onclick="pq(-1)" aria-label="Azalt">${svg("minus")}</button><span id="pqv">1</span><button onclick="pq(1)" aria-label="Artır">${svg("plus")}</button></div><button class="btn" id="pdAdd" onclick="addFromP()">${svg("bag")}Səbətə at</button></div>
  <div class="perks"><div>${svg("shield")}Qiymətə gömrük və çatdırılma daxildir</div><div>${svg("truck")}Təxmini çatdırılma: 15-25 gün</div><div>${svg("tag")}Son qiymət sifarişdən sonra operator tərəfindən təsdiqlənir</div></div></div></div>
- ${(p.attrs&&p.attrs.length)||p.kg?`<div class="sec"><h4>Xüsusiyyətlər</h4><dl class="spec">${(p.attrs||[]).map(a=>`<dt>${esc(a.n)}</dt><dd>${esc(a.v)}</dd>`).join("")}<dt>Təxmini çəki</dt><dd>${p.kg} kq</dd></dl></div>`:""}
+ ${(p.attrs&&p.attrs.length)||p.kg?`<div class="sec"><h4>Xüsusiyyətlər</h4><dl class="spec">${p.brand?`<dt>Brend</dt><dd>${esc(p.brand)}</dd>`:""}${(p.attrs||[]).filter(a=>!(p.brand&&/brend|brand|marka|品牌/i.test(a.n))).map(a=>`<dt>${esc(a.n)}</dt><dd>${esc(a.v)}</dd>`).join("")}<dt>Təxmini çəki</dt><dd>${p.kg} kq</dd></dl></div>`:""}
  ${p.desc?`<div class="sec"><h4>Təsvir</h4><p class="note" style="white-space:pre-line;font-size:14px;color:var(--ink)">${esc(p.desc)}</p></div>`:""}
  ${(p.dimgs||[]).length?`<div class="sec"><h4>Ətraflı şəkillər</h4><div class="dimg">${p.dimgs.map(u=>`<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">`).join("")}</div></div>`:""}`;
- (p.opts||[]).forEach((o,g)=>drawOpt(g));pdD.showModal();$("pdB").scrollTop=0}
-function drawOpt(g){const o=PD.p.opts[g],hasI=o.vi&&o.vi.some(Boolean);
- $("og"+g).innerHTML=o.v.map((v,i)=>hasI&&o.vi[i]?`<button class="sw" title="${esc(v)}" aria-label="${esc(v)}" aria-pressed="${PD.sel[g]===i}" onclick="pick(${g},${i})"><img src="${esc(o.vi[i])}" alt="" referrerpolicy="no-referrer"></button>`:`<button class="pl" aria-pressed="${PD.sel[g]===i}" onclick="pick(${g},${i})">${esc(v)}</button>`).join("")}
-function pick(g,i){PD.sel[g]=i;const o=PD.p.opts[g];$("sv"+g).textContent=o.v[i];drawOpt(g);if(o.vi&&o.vi[i])showImg(o.vi[i])}
+ paintIcons($("pdB"));upd(true);pdD.showModal();$("pdB").scrollTop=0}
+function drawOpt(g){const p=PD.p,o=p.opts[g],hasI=o.vi&&o.vi.some(Boolean);
+ $("og"+g).innerHTML=o.v.map((v,i)=>{const stt=vState(p,g,i,PD.sel),cl=stt==="x"?"x":stt==="dim"?"dim":"",dis=stt==="x"?"aria-disabled=\"true\"":"";
+  return hasI?`<button class="sw ${cl}" title="${esc(v)}" ${dis} aria-pressed="${PD.sel[g]===i}" onclick="pick(${g},${i})">${o.vi[i]?`<img src="${esc(o.vi[i])}" alt="" referrerpolicy="no-referrer">`:""}<span>${esc(v)}</span></button>`
+  :`<button class="pl ${cl}" ${dis} aria-pressed="${PD.sel[g]===i}" onclick="pick(${g},${i})">${esc(v)}</button>`}).join("")}
+function pick(g,i){const p=PD.p;if(vState(p,g,i,PD.sel)==="x"){toast("Bu variant hazırda satışda yoxdur");return}
+ PD.sel[g]=i;
+ if((p.skus||[]).length&&!freeV(p,g,i)){const k=skI(p,PD.sel);if(k<0||p.skus[k].st===0){let best=null,bs=-1;for(const x of p.skus){if(x.k[g]!==i||x.st===0)continue;const sc=x.k.filter((v,h)=>v===PD.sel[h]).length;if(sc>bs){bs=sc;best=x}}if(best&&best.k.length===PD.sel.length)PD.sel=[...best.k]}}
+ const o=p.opts[g];upd(false);const k=skI(p,PD.sel),sk=k>=0?p.skus[k]:null;if(sk&&sk.img)showImg(sk.img);else if(o.vi&&o.vi[i])showImg(o.vi[i])}
+function upd(first){const p=PD.p;(p.opts||[]).forEach((o,g)=>{drawOpt(g);$("sv"+g).textContent=o.v[PD.sel[g]]||""});
+ const k=skI(p,PD.sel),sk=k>=0?p.skus[k]:null,has=(p.skus||[]).length>0;
+ const pr=sk?priceS(p,sk):has&&!first?minP(p):(has?priceS(p,p.skus.find(x=>x.st!==0)||p.skus[0]):price(p));
+ $("pdPr").innerHTML=mny(sk?pr:(has?minP(p):price(p)))+(!sk&&has&&maxP(p)>minP(p)+0.009?`<span class="from">-dən</span>`:"");
+ const o=oldOf(p,sk||(has?null:null));$("pdOld").textContent=o?fmt(o):"";const ds=$("pdDs");ds.hidden=!o;if(o)ds.textContent="-"+Math.round((1-(sk?pr:minP(p))/o)*100)+"%";
+ const st=$("pdSt"),btn=$("pdAdd");
+ if(has&&!sk){const free=(p.opts||[]).some((_,g)=>freeV(p,g,PD.sel[g]));st.className="stk "+(free?"ok":"no");st.textContent=free?"":"Bu kombinasiya mövcud deyil — başqa variant seçin";btn.disabled=!free}
+ else if(sk&&sk.st===0){st.className="stk no";st.textContent="Bu variant bitib";btn.disabled=true}
+ else if(sk&&sk.st>0&&sk.st<=10){st.className="stk lo";st.textContent="Tələsin! Cəmi "+sk.st+" ədəd qalıb";btn.disabled=false}
+ else if(sk&&sk.st>10){st.className="stk ok";st.textContent="✓ Stokda var";btn.disabled=false}
+ else if(has&&soldOut(p)){st.className="stk no";st.textContent="Məhsul hazırda bitib";btn.disabled=true}
+ else{st.className="stk";st.textContent="";btn.disabled=false}
+ const ss=$("pdSel");if(ss)ss.innerHTML="Seçiminiz: <b>"+(p.opts||[]).map((o,g)=>esc(o.v[PD.sel[g]]||"")).join(" · ")+"</b>"}
 function showImg(u){$("mainv").innerHTML=`<img id="pm" src="${esc(u)}" alt="" referrerpolicy="no-referrer">`;const i=PD.gal.indexOf(u);document.querySelectorAll("#thv button").forEach((b,k)=>b.setAttribute("aria-pressed",k===i))}
 function gset(i){document.querySelectorAll("#thv button").forEach((b,k)=>b.setAttribute("aria-pressed",(i==="v"?k===PD.gal.length:k===i)));
  $("mainv").innerHTML=i==="v"?`<video src="${esc(PD.p.video)}" controls autoplay playsinline></video>`:`<img id="pm" src="${esc(PD.gal[i])}" alt="" referrerpolicy="no-referrer">`}
-function pq(d){PD.q=Math.max(1,Math.min(99,PD.q+d));$("pqv").textContent=PD.q}
-function addFromP(){const p=PD.p,opt=(p.opts||[]).map((o,g)=>o.n+": "+o.v[PD.sel[g]]).join(", ");let im="";for(const [g,o] of (p.opts||[]).entries()){if(o.vi&&o.vi[PD.sel[g]]){im=o.vi[PD.sel[g]];break}}
- addP(p.id,opt,PD.q,im||p.img);pdD.close()}
+function pq(d){const p=PD.p,k=skI(p,PD.sel),sk=k>=0?p.skus[k]:null,mx=sk&&sk.st>0?Math.min(99,sk.st):99;PD.q=Math.max(1,Math.min(mx,PD.q+d));$("pqv").textContent=PD.q;if(sk&&sk.st>0&&PD.q>=sk.st&&d>0)toast("Stokda cəmi "+sk.st+" ədəd var")}
+function addFromP(){const p=PD.p,opt=(p.opts||[]).map((o,g)=>o.n+": "+o.v[PD.sel[g]]).join(", ");
+ const k=skI(p,PD.sel),sk=k>=0?p.skus[k]:null;
+ if((p.skus||[]).length&&sk&&sk.st===0){toast("Bu variant bitib, başqasını seçin");return}
+ if((p.skus||[]).length&&!sk&&!(p.opts||[]).some((_,g)=>freeV(p,g,PD.sel[g]))){toast("Bu kombinasiya mövcud deyil");return}
+ let im=sk&&sk.img?sk.img:"";if(!im)for(const [g,o] of (p.opts||[]).entries()){if(o.vi&&o.vi[PD.sel[g]]){im=o.vi[PD.sel[g]];break}}
+ addP(p.id,opt,PD.q,im||p.img,k);pdD.close()}
 
 /* orders */
 const ST0={new:"Sifariş qəbul edildi",confirmed:"Təsdiqləndi",taobao:"Təsdiqləndi",ordered:"Çindən sifariş verildi",shipped:"Çin anbarından yola düşdü",warehouse:"Bakı anbarındadır",courier:"Kuryerdədir",done:"Çatdırıldı",cancel:"Ləğv edildi"};
