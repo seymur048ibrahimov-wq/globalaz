@@ -130,9 +130,10 @@ function parseItem(j){
  const skMin=sk.length?Math.min(...sk.map(x=>x.cny)):0,skMax=sk.length?Math.max(...sk.map(x=>x.cny)):0;
  return{title,img,imgs,cny:skMin||cny,cnyMax:skMax||cnyMax,cnyOrig:cnyOrig>(skMin||cny)?cnyOrig:0,desc,opts,skus:sk,brand,sold,attrs:attrs.slice(0,40),shop,video,dimgs}}
 // ---- Apify: token yalnız .env faylında (APIFY_TOKEN) ----
-const AK=E.APIFY_TOKEN||'',AA=(E.APIFY_ACTOR||'khadinakbar~taobao-product-detail-scraper').replace('/','~');
-// Əsas Actor çöksə, avtomatik ehtiyat Actor işə düşür (.env: APIFY_ACTOR2; "-" yazsanız söndürülür)
-const AA2=(E.APIFY_ACTOR2||'zen-studio~taobao-detail-scraper').replace('/','~');
+// Əsas Actor: zen-studio (rəng/ölçü variantları, qiymət, stok, brend verir). Başqasını istəsəniz: APIFY_PRIMARY
+// .env-dəki APIFY_ACTOR (köhnə khadinakbar) avtomatik EHTİYAT olur — əsas Actor alınmasa ona keçilir
+const AK=E.APIFY_TOKEN||'',AA=(E.APIFY_PRIMARY||'zen-studio~taobao-detail-scraper').replace('/','~');
+const AA2=(E.APIFY_ACTOR2||E.APIFY_ACTOR||'khadinakbar~taobao-product-detail-scraper').replace('/','~');
 // Hər Actor linki fərqli sahə adı ilə qəbul edir
 function actInput(actor,link){
  if(E.APIFY_INPUT_KEY)return{[E.APIFY_INPUT_KEY]:[link]};
@@ -151,7 +152,10 @@ async function apifyRun(actor,link){
 async function apifyRaw(link){
  if(!AK)throw new Error('Apify qoşulmayıb (.env: APIFY_TOKEN)');
  const list=[AA,...(AA2&&AA2!=='-'&&AA2!==AA?[AA2]:[])],errs=[];
- for(const a of list){try{const x=await apifyRun(a,link);x.__actor=a;return x}catch(e){errs.push(e.message);console.error('Apify:',e.message)}}
+ for(const a of list){try{const x=await apifyRun(a,link);x.__actor=a;return x}catch(e){console.error('Apify:',e.message);
+  if(/ 402: .*concurrent/i.test(e.message))throw new Error('Apify-da eyni anda çox Actor işləyir (pulsuz plan limiti 5). console.apify.com/actors/runs səhifəsində "Running" olanları Abort edin və 1 dəqiqə sonra yenidən yoxlayın');
+  if(/ 40[13]: /.test(e.message))throw new Error('Apify token-i səhvdir və ya etibarsızdır (APIFY_TOKEN): '+e.message);
+  errs.push(e.message)}}
  throw new Error(errs.join(' || '))}
 const rawAny=link=>apifyRaw(link);
 async function trOpts(opts){if(!opts.length)return opts;
