@@ -44,6 +44,14 @@ small,.mu{color:var(--mu);font-size:12.5px}.zh{color:var(--mu);font-size:12.5px}
 .vr{display:grid;grid-template-columns:44px 1fr 1.2fr auto;gap:8px;align-items:center;margin-bottom:8px}.vr .th,.vr .ph{width:44px;height:44px}
 @media (max-width:640px){.vr{grid-template-columns:44px 1fr auto}.vr input:nth-of-type(2){grid-column:1/-1;order:5}.kv{grid-template-columns:90px 1fr}}
 .grp{border:1px solid var(--ln);border-radius:8px;padding:12px;margin-bottom:12px;background:#FBF7EE}
+.skt{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+.skt th{text-align:left;font-size:11.5px;color:#777;font-weight:700;padding:6px 6px;border-bottom:1px solid var(--ln)}
+.skt td{padding:5px 6px;border-bottom:1px solid var(--ln);vertical-align:middle}
+.skt input{padding:6px 8px;font-size:13px;width:90px}
+.skt img{width:34px;height:34px;object-fit:cover;border-radius:6px;display:block}
+.skt tr.out td{opacity:.55}
+.skw{max-height:420px;overflow:auto;border:1px solid var(--ln);border-radius:8px;padding:0 8px;background:#fff}
+.zhv{display:block;font-size:11.5px;color:#9a6b00}
 .ar{display:grid;grid-template-columns:1fr 1.6fr auto;gap:8px;margin-bottom:8px}
 .cr{display:grid;grid-template-columns:44px minmax(140px,1.4fr) minmax(130px,1fr) auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--ln)}
 .cr .ico{width:44px;height:44px;border-radius:50%;border:1px solid var(--gold);display:grid;place-items:center;color:var(--gold);font-size:22px}
@@ -172,9 +180,9 @@ function copyTxt(t,m){navigator.clipboard.writeText(t).then(()=>msg(m||"Kopyalan
 
 /* ===== sifarişlər ===== */
 const nextSt=s=>{const i=FLOW.indexOf(s);return i>=0&&i<FLOW.length-1?FLOW[i+1]:null};
-function sheetOf(o){const L=[`GlobalAz sifariş ${o.no}`,""];o.items.forEach((i,x)=>{L.push(`${x+1}) ${i.zh||i.n}`);if(i.zh&&i.n)L.push(`   Ad (AZ): ${i.n}`);if(i.opt)L.push(`   Seçim: ${i.opt}`);L.push(`   Say: ${i.q}`+(i.cny?`   Qiymət: ${i.cny} ¥`:""));if(i.link)L.push(`   Link: ${i.link}`);L.push("")});
+function sheetOf(o){const L=[`GlobalAz sifariş ${o.no}`,""];o.items.forEach((i,x)=>{L.push(`${x+1}) ${i.zh||i.n}`);if(i.zh&&i.n)L.push(`   Ad (AZ): ${i.n}`);if(i.opt)L.push(`   Seçim: ${i.opt}`);if(i.optZh)L.push(`   Taobao seçimi: ${i.optZh}`);L.push(`   Say: ${i.q}`+(i.cny?`   Qiymət: ${i.cny} ¥`:""));if(i.link)L.push(`   Link: ${i.link}`);L.push("")});
  if(ST2.wh)L.push("Çatdırılma ünvanı (kargo anbarı):",ST2.wh);else L.push("Çatdırılma ünvanı: (kargo anbarı hələ təyin edilməyib)");return L.join("\n")}
-function oitems(o){return o.items.map((i,x)=>`<div class="it">${im(i.img)}<div class="mn"><b>${esc(i.n)}</b>${i.opt?` <span class="bd">${esc(i.opt)}</span>`:""}<div class="zh">${esc(i.zh)}</div><small>${i.q} × ${i.u.toFixed(2)} ₼ = <b>${(i.u*i.q).toFixed(2)} ₼</b>${i.cny?` · ${i.cny} ¥ · ${i.kg} kq`:""}</small></div>
+function oitems(o){return o.items.map((i,x)=>`<div class="it">${im(i.img)}<div class="mn"><b>${esc(i.n)}</b>${i.opt?` <span class="bd">${esc(i.opt)}</span>`:""}<div class="zh">${esc(i.zh)}</div>${i.optZh?`<div class="zh">Taobao seçimi: <b>${esc(i.optZh)}</b></div>`:""}<small>${i.q} × ${i.u.toFixed(2)} ₼ = <b>${(i.u*i.q).toFixed(2)} ₼</b>${i.cny?` · ${i.cny} ¥ · ${i.kg} kq`:""}</small></div>
  ${i.link?`<button class="g s" onclick="window.open(OR.find(x=>x.id==='${o.id}').items[${x}].link,'_blank','noopener')">${svg("link")}Taobao</button><button class="g s" onclick="cpl('${o.id}',${x})">${svg("copy")}Link</button>`:`<small>Link yoxdur</small>`}</div>`).join("")}
 function histLi(h){const t={status:()=>"Status: <b>"+esc(STS[h.v]||h.v)+"</b>",pay:()=>"Ödəniş: <b>"+esc(PAY[h.v]||h.v)+"</b>",track:()=>"İzləmə nömrəsi: <b>"+esc(h.v)+"</b>",taobao:()=>"Taobao sifariş №: <b>"+esc(h.v)+"</b>",agent:()=>"<b>Sifariş Taobao agentinə göndərildi</b>"}[h.k]||(()=>esc(h.v));
  return `<li>${t()}${h.n&&h.k==="status"?`<br><small>${esc(h.n)}</small>`:""}<time>${D(h.t)}</time></li>`}
@@ -236,17 +244,28 @@ let PQ="",PC="";
 function rp(){const L=PR.filter(p=>(!PC||p.c===PC)&&(!PQ||((p.az||"")+(p.zh||"")).toLowerCase().includes(PQ.toLowerCase())));
  $("s_p").innerHTML=`<div class="row"><input placeholder="Məhsul axtar" value="${esc(PQ)}" oninput="PQ=this.value;rpl()" id="pq"><select onchange="PC=this.value;rp()"><option value="">Bütün kataloqlar</option>${CAT.map(c=>`<option${c.name===PC?" selected":""}>${esc(c.name)}</option>`).join("")}</select></div><div class="c" id="pl"></div>`;rpl()}
 function rpl(){const L=PR.filter(p=>(!PC||p.c===PC)&&(!PQ||((p.az||"")+(p.zh||"")).toLowerCase().includes(PQ.toLowerCase())));
- $("pl").innerHTML=L.length?L.map(p=>`<div class="it">${im(p.img)}<div class="mn"><b>${esc(p.az||p.zh)}</b><div class="zh">${esc(p.zh)}</div><small>${p.cny} ¥ → <b>${fp(p).toFixed(2)} ₼</b> · ${1+(p.imgs||[]).length} şəkil · ${(p.opts||[]).length} variant qrupu · ${(p.attrs||[]).length} xüsusiyyət</small></div>
+ $("pl").innerHTML=L.length?L.map(p=>`<div class="it">${im(p.img)}<div class="mn"><b>${esc(p.az||p.zh)}</b><div class="zh">${esc(p.zh)}</div><small>${(p.skus||[]).length?`${Math.min(...p.skus.map(x=>x.cny))}–${Math.max(...p.skus.map(x=>x.cny))} ¥ · ${p.skus.length} variant qiyməti`:`${p.cny} ¥`} → <b>${fp(p).toFixed(2)} ₼</b>${p.brand?` · ${esc(p.brand)}`:""} · ${1+(p.imgs||[]).length} şəkil · ${(p.opts||[]).length} variant qrupu · ${(p.attrs||[]).length} xüsusiyyət</small></div>
  <select style="width:170px" onchange="mvC('${p.id}',this.value)" aria-label="Kataloq">${[...new Set([...CAT.map(c=>c.name),p.c])].map(c=>`<option${c===p.c?" selected":""}>${esc(c)}</option>`).join("")}</select>
  <button class="g s" onclick="ed('${p.id}')">${svg("edit")}Redaktə</button><button class="r s" onclick="dl('${p.id}')">${svg("trash")}</button></div>`).join(""):'<p>Məhsul yoxdur. “Məhsul əlavə et” bölməsindən başlayın.</p>';paint($("pl"))}
 async function mvC(id,c){const p=PR.find(x=>x.id===id);try{await api("/admin/products/"+id,{method:"PUT",body:{...p,c}});p.c=c;await lc();msg("Kataloq dəyişdi")}catch(e){msg(e.message)}}
 async function dl(id){if(!confirm("Məhsul silinsin?"))return;try{await api("/admin/products/"+id,{method:"DELETE"});PR=PR.filter(x=>x.id!==id);await lc();rp()}catch(e){msg(e.message)}}
 
 /* ===== məhsul formu ===== */
-const blank=()=>({link:"",zh:"",az:"",c:(CAT[0]||{}).name||"Digər",cny:"",kg:.5,pr:"",shop:"",desc:"",gal:[],opts:[],attrs:[],dimgs:[],video:""});
+const blank=()=>({link:"",zh:"",az:"",c:(CAT[0]||{}).name||"Digər",cny:"",kg:.5,pr:"",shop:"",brand:"",sold:0,cnyOrig:0,desc:"",gal:[],opts:[],skus:[],attrs:[],dimgs:[],video:""});
+const cpO=o=>({n:o.n,v:[...o.v],vi:o.v.map((_,i)=>(o.vi||[])[i]||""),nz:o.nz||"",vz:o.v.map((_,i)=>(o.vz||[])[i]||"")});
+const cpS=x=>({k:[...(x.k||[])],cny:x.cny||"",o:x.o||0,st:x.st==null||x.st<0?"":x.st,img:x.img||"",pr:x.pr||""});
+/* Variant dəyəri/qrupu silinəndə variant qiymətləri cədvəli də düzgün qalsın */
+function rmV(g,j){F.opts[g].v.splice(j,1);F.opts[g].vi.splice(j,1);F.opts[g].vz.splice(j,1);F.skus=F.skus.filter(x=>x.k[g]!==j).map(x=>{const k=[...x.k];if(k[g]>j)k[g]--;return{...x,k}});df()}
+function rmG(g){F.opts.splice(g,1);const seen=new Map();F.skus.forEach(x=>{const k=x.k.filter((_,h)=>h!==g),K=k.join(",");const e=seen.get(K);if(!e||(+x.cny||0)<(+e.cny||0))seen.set(K,{...x,k})});F.skus=F.skus.length?[...seen.values()]:[];if(!F.opts.length)F.skus=[];df()}
+function skLabel(x){return x.k.map((v,g)=>{const o=F.opts[g];return o?(o.v[v]||"?"):""}).join(" · ")}
+function skZh(x){return x.k.map((v,g)=>{const o=F.opts[g];return o&&o.vz&&o.vz[v]?o.vz[v]:""}).filter(Boolean).join(" · ")}
+function skImg(x){return x.img||F.opts.map((o,g)=>o.vi&&o.vi[x.k[g]]).find(Boolean)||""}
+function skAll(){const v=prompt("Bütün variantlar üçün eyni ¥ qiymət yazın:");if(v==null||!(+v>0))return;F.skus.forEach(x=>x.cny=+v);df()}
+function skGen(){if(!F.opts.length)return msg("Əvvəlcə variant qrupları əlavə edin");let L=[[]];F.opts.forEach(o=>{const n=[];L.forEach(a=>o.v.forEach((_,i)=>n.push([...a,i])));L=n});if(L.length>400)return msg("Çox kombinasiya var ("+L.length+")");
+ const old=new Map(F.skus.map(x=>[x.k.join(","),x]));F.skus=L.map(k=>old.get(k.join(","))||{k,cny:F.cny||"",o:0,st:"",img:"",pr:""});df()}
 function newP(){ED=null;F=blank();$("ft").textContent="Yeni məhsul";df();tab("a")}
 function ed(id){const p=PR.find(x=>x.id===id);ED=id;
- F={link:p.link||"",zh:p.zh||"",az:p.az||"",c:p.c,cny:p.cny||"",kg:p.kg,pr:p.pr||"",shop:p.shop||"",desc:p.desc||"",gal:[p.img,...(p.imgs||[])].filter(Boolean),opts:(p.opts||[]).map(o=>({n:o.n,v:[...o.v],vi:o.v.map((_,i)=>(o.vi||[])[i]||"")})),attrs:(p.attrs||[]).map(a=>({...a})),dimgs:[...(p.dimgs||[])],video:p.video||""};
+ F={link:p.link||"",zh:p.zh||"",az:p.az||"",c:p.c,cny:p.cny||"",kg:p.kg,pr:p.pr||"",shop:p.shop||"",brand:p.brand||"",sold:p.sold||0,cnyOrig:p.cnyOrig||0,desc:p.desc||"",gal:[p.img,...(p.imgs||[])].filter(Boolean),opts:(p.opts||[]).map(cpO),skus:(p.skus||[]).map(cpS),attrs:(p.attrs||[]).map(a=>({...a})),dimgs:[...(p.dimgs||[])],video:p.video||""};
  $("ft").textContent="Redaktə";df();tab("a")}
 async function gt(l){newP();F.link=l;df();await fl()}
 const imgGrid=k=>`<div class="ig">${F[k].map((u,i)=>`<div class="igi"><img src="${esc(u)}" referrerpolicy="no-referrer" alt=""><span>${k==="gal"&&i===0?"Əsas":""}</span><div class="ia">${k==="gal"&&i>0?`<button title="Əsas şəkil et" aria-label="Əsas et" onclick="mkMain(${i})">${svg("check")}</button>`:""}<button class="r" aria-label="Sil" onclick="rmImg('${k}',${i})">${svg("close")}</button></div></div>`).join("")}</div>
@@ -258,14 +277,19 @@ function df(){const catOpts=[...new Set([...CAT.map(c=>c.name),F.c])];
  <div class="row nf"><button class="g s" onclick="tz()">Çincədən Azərbaycan dilinə tərcümə et</button></div>
  <label>Azərbaycan dilində ad (saytda görünəcək)<textarea rows="2" oninput="F.az=this.value" id="az">${esc(F.az)}</textarea></label>
  <div class="row"><label>Kataloq<select onchange="F.c=this.value">${catOpts.map(c=>`<option${c===F.c?" selected":""}>${esc(c)}</option>`).join("")}</select></label><label>Satıcı mağaza (müştəriyə göstərilmir)<input value="${esc(F.shop)}" oninput="F.shop=this.value"></label></div>
+ <div class="row"><label>Brend / marka (saytda görünür)<input value="${esc(F.brand)}" oninput="F.brand=this.value" placeholder="Məs.: Nike, Xiaomi"></label><label>Satış sayı (Taobao-da)<input type="number" value="${esc(F.sold||"")}" oninput="F.sold=+this.value||0"></label><label>Endirimdən əvvəlki qiymət (¥)<input type="number" step="0.01" value="${esc(F.cnyOrig||"")}" oninput="F.cnyOrig=+this.value||0"></label></div>
  <div class="row"><label>Qiymət (¥ CNY)<input type="number" step="0.01" value="${esc(F.cny)}" oninput="F.cny=this.value;pv()"></label><label>Çəki (kq)<input type="number" step="0.01" value="${esc(F.kg)}" oninput="F.kg=this.value;pv()"></label><label>Öz qiymətim (₼, istəyə bağlı)<input type="number" step="0.01" value="${esc(F.pr)}" oninput="F.pr=this.value;pv()"></label></div>
  <p>Saytda qiymət: <b id="pvv">—</b></p>
  <hr><h4>Şəkillər <small>(birinci şəkil əsas şəkildir)</small></h4>${imgGrid("gal")}
  <hr><h4>Variantlar: rəng, ölçü və s.</h4>
- ${F.opts.map((o,g)=>`<div class="grp"><div class="row"><label>Qrup adı<input value="${esc(o.n)}" oninput="F.opts[${g}].n=this.value" placeholder="Rəng, Ölçü, Model…"></label><button class="r s" onclick="F.opts.splice(${g},1);df()">${svg("trash")}Qrupu sil</button></div>
- ${o.v.map((v,j)=>`<div class="vr">${o.vi[j]?im(o.vi[j]):`<span class="ph">${svg("tag")}</span>`}<input value="${esc(v)}" oninput="F.opts[${g}].v[${j}]=this.value" placeholder="Dəyər"><input value="${esc(o.vi[j])}" oninput="F.opts[${g}].vi[${j}]=this.value" placeholder="Şəkil linki (rəng üçün, istəyə bağlı)"><button class="g s" aria-label="Sil" onclick="F.opts[${g}].v.splice(${j},1);F.opts[${g}].vi.splice(${j},1);df()">${svg("close")}</button></div>`).join("")}
- <button class="g s" onclick="F.opts[${g}].v.push('');F.opts[${g}].vi.push('');df()">${svg("plus")}Dəyər əlavə et</button></div>`).join("")}
+ ${F.opts.map((o,g)=>`<div class="grp"><div class="row"><label>Qrup adı<input value="${esc(o.n)}" oninput="F.opts[${g}].n=this.value" placeholder="Rəng, Ölçü, Model…"></label><button class="r s" onclick="rmG(${g})">${svg("trash")}Qrupu sil</button></div>${o.nz&&o.nz!==o.n?`<span class="zhv">Taobao-da: ${esc(o.nz)}</span>`:""}
+ ${o.v.map((v,j)=>`<div class="vr">${o.vi[j]?im(o.vi[j]):`<span class="ph">${svg("tag")}</span>`}<div><input value="${esc(v)}" oninput="F.opts[${g}].v[${j}]=this.value" placeholder="Dəyər">${o.vz&&o.vz[j]&&o.vz[j]!==v?`<span class="zhv">${esc(o.vz[j])}</span>`:""}</div><input value="${esc(o.vi[j])}" oninput="F.opts[${g}].vi[${j}]=this.value" placeholder="Şəkil linki (rəng üçün, istəyə bağlı)"><button class="g s" aria-label="Sil" onclick="rmV(${g},${j})">${svg("close")}</button></div>`).join("")}
+ <button class="g s" onclick="F.opts[${g}].v.push('');F.opts[${g}].vi.push('');F.opts[${g}].vz.push('');df()">${svg("plus")}Dəyər əlavə et</button></div>`).join("")}
  <div class="row nf"><button class="g" onclick="addG('Rəng')">${svg("plus")}Rəng qrupu</button><button class="g" onclick="addG('Ölçü')">${svg("plus")}Ölçü qrupu</button><button class="g" onclick="addG('')">${svg("plus")}Başqa qrup</button></div>
+ ${F.opts.length?`<h4 style="margin-top:14px">Variant qiymətləri və stok <small>(Taobao-dakı kimi hər kombinasiyanın öz qiyməti)</small></h4>
+ <p class="mu">Müştəri rəng/ölçü seçəndə saytda bu qiymət göstərilir. Stok 0 olan variant saytda “Bitib” görünür və alınmır. Stoku boş qoysanız “məlum deyil” sayılır.</p>
+ ${F.skus.length?`<div class="skw"><table class="skt"><tr><th></th><th>Variant</th><th>¥ qiymət</th><th>Stok</th><th>Öz qiymətim ₼</th><th>Saytda</th></tr>${F.skus.map((x,i)=>`<tr class="${x.st===0||x.st==="0"?"out":""}"><td>${skImg(x)?`<img src="${esc(skImg(x))}" referrerpolicy="no-referrer" alt="">`:""}</td><td><b>${esc(skLabel(x))}</b>${skZh(x)?`<span class="zhv">${esc(skZh(x))}</span>`:""}</td><td><input type="number" step="0.01" value="${esc(x.cny)}" oninput="F.skus[${i}].cny=this.value;skPv(${i})"></td><td><input type="number" value="${esc(x.st)}" placeholder="—" oninput="F.skus[${i}].st=this.value"></td><td><input type="number" step="0.01" value="${esc(x.pr)}" placeholder="avto" oninput="F.skus[${i}].pr=this.value;skPv(${i})"></td><td><b id="skp${i}">${skPrice(x).toFixed(2)} ₼</b></td></tr>`).join("")}</table></div>`:`<p class="mu">Variant qiymətləri yoxdur — bütün variantlar əsas qiymətlə satılır.</p>`}
+ <div class="row nf"><button class="g s" onclick="skGen()">${svg("plus")}Bütün kombinasiyaları yarat</button>${F.skus.length?`<button class="g s" onclick="skAll()">Hamısına eyni ¥ qiymət</button><button class="r s" onclick="if(confirm('Variant qiymətləri silinsin?')){F.skus=[];df()}">${svg("trash")}Cədvəli sil</button>`:""}</div>`:""}
  <hr><h4>Xüsusiyyətlər <small>(material, mövsüm, brend və s.)</small></h4>
  ${F.attrs.map((a,i)=>`<div class="ar"><input value="${esc(a.n)}" oninput="F.attrs[${i}].n=this.value" placeholder="Ad"><input value="${esc(a.v)}" oninput="F.attrs[${i}].v=this.value" placeholder="Dəyər"><button class="g s" aria-label="Sil" onclick="F.attrs.splice(${i},1);df()">${svg("close")}</button></div>`).join("")}
  <button class="g s" onclick="F.attrs.push({n:'',v:''});df()">${svg("plus")}Xüsusiyyət əlavə et</button>
@@ -273,10 +297,12 @@ function df(){const catOpts=[...new Set([...CAT.map(c=>c.name),F.c])];
  <hr><h4>Ətraflı şəkillər <small>(məhsul səhifəsinin aşağısında göstərilir)</small></h4>${imgGrid("dimgs")}
  <label>Video linki (https://..., istəyə bağlı)<input value="${esc(F.video)}" oninput="F.video=this.value"></label>
  <hr><div class="row nf"><button onclick="sv()">${svg("check")}Saytda yerləşdir</button><button class="g" onclick="newP()">Təmizlə</button></div>`;pv();paint($("pf"))}
-function addG(n){F.opts.push({n,v:[""],vi:[""]});df()}
+function addG(n){F.opts.push({n,v:[""],vi:[""],nz:"",vz:[""]});F.skus=[];df()}
 function addImg(k){const u=($("add_"+k).value||"").split(/[\s,]+/).filter(x=>/^https?:\/\//.test(x));if(!u.length)return msg("Düzgün şəkil linki yazın");F[k].push(...u);df()}
 function rmImg(k,i){F[k].splice(i,1);df()}
 function mkMain(i){const [u]=F.gal.splice(i,1);F.gal.unshift(u);df()}
+function skPrice(x){const c=+x.cny||0;return +x.pr>0?+x.pr:+F.pr>0?+F.pr:fp({cny:c,kg:+F.kg||0.5,pr:0})}
+function skPv(i){const e=$("skp"+i);if(e)e.textContent=skPrice(F.skus[i]).toFixed(2)+" ₼"}
 function pv(){const p={cny:+F.cny||0,kg:+F.kg||0.5,pr:+F.pr||0},e=$("pvv");if(e)e.textContent=p.cny||p.pr?fp(p).toFixed(2)+" ₼":"—"}
 async function tz(){const t=F.zh.trim();if(!t)return;try{F.az=(await api("/translate",{method:"POST",body:{text:t}})).text;$("az").value=F.az}catch(e){msg(e.message)}}
 async function td(){const t=F.desc.trim();if(!t)return;try{F.desc=(await api("/translate",{method:"POST",body:{text:t}})).text;$("ds").value=F.desc}catch(e){msg(e.message)}}
@@ -285,12 +311,18 @@ async function fl(){const l=F.link.trim();if(!l)return msg("Link daxil edin");ms
   if(j.title){F.zh=j.title;try{F.az=(await api("/translate",{method:"POST",body:{text:j.title}})).text}catch(e){}}
   const g=[j.img,...(j.imgs||[])].filter(Boolean);if(g.length)F.gal=[...new Set(g)];
   if(j.cny)F.cny=j.cny;if(j.desc)F.desc=j.desc;if(j.shop)F.shop=j.shop;if(j.video)F.video=j.video;if((j.dimgs||[]).length)F.dimgs=j.dimgs;
-  if((j.opts||[]).length)F.opts=j.opts.map(o=>({n:o.n,v:[...o.v],vi:o.v.map((_,i)=>(o.vi||[])[i]||"")}));
+  if((j.opts||[]).length)F.opts=j.opts.map(cpO);
+  F.skus=(j.skus||[]).map(cpS);if(j.brand)F.brand=j.brand;if(j.sold)F.sold=j.sold;F.cnyOrig=j.cnyOrig||0;
   if((j.attrs||[]).length)F.attrs=j.attrs;
-  df();$("fsum").textContent=`Gətirildi: ${F.gal.length} şəkil · ${F.opts.length} variant qrupu (${F.opts.reduce((a,o)=>a+o.v.length,0)} dəyər) · ${F.attrs.length} xüsusiyyət · ${F.dimgs.length} ətraflı şəkil${F.video?" · video":""}. Hər şeyi yoxlayıb redaktə edə bilərsiniz.`;
-  msg(j.blocked?(j.apiError?"API xətası: "+j.apiError:"Sayt məlumat vermədi (giriş/captcha). Çin adını və qiyməti əl ilə yapışdırın."):((j.via==="api"?"Gətirildi (API)":"Gətirildi")+(j.cnyMax>j.cny?". Diqqət: variantların qiyməti fərqlidir ("+j.cny+" – "+j.cnyMax+" ¥), saytda ən aşağı qiymət göstəriləcək":"")))}catch(e){msg(e.message)}}
+  df();$("fsum").textContent=`Gətirildi: ${F.gal.length} şəkil · ${F.opts.length} variant qrupu (${F.opts.reduce((a,o)=>a+o.v.length,0)} dəyər) · ${F.skus.length} variant qiyməti · ${F.attrs.length} xüsusiyyət · ${F.dimgs.length} ətraflı şəkil${F.video?" · video":""}${F.brand?" · brend: "+F.brand:""}. Hər şeyi yoxlayıb redaktə edə bilərsiniz.`;
+  msg(j.blocked?(j.apiError?"API xətası: "+j.apiError:"Sayt məlumat vermədi (giriş/captcha). Çin adını və qiyməti əl ilə yapışdırın."):((j.via==="api"?"Gətirildi (API)":"Gətirildi")+(j.cnyMax>j.cny?". Variantların qiyməti fərqlidir ("+j.cny+" – "+j.cnyMax+" ¥) — saytda hər variant öz qiyməti ilə göstəriləcək":"")))}catch(e){msg(e.message)}}
 async function sv(){const b={link:F.link.trim(),zh:F.zh.trim(),az:F.az.trim(),c:F.c,img:F.gal[0]||"",imgs:F.gal.slice(1),cny:+F.cny||0,kg:+F.kg||0.5,pr:+F.pr||0,desc:F.desc.trim(),shop:F.shop.trim(),video:F.video.trim(),dimgs:F.dimgs,
-  opts:F.opts.filter(o=>o.n.trim()).map(o=>({n:o.n.trim(),v:o.v.map(x=>x.trim()),vi:o.vi.map(x=>x.trim())})),attrs:F.attrs.filter(a=>a.n.trim()&&a.v.trim())};
+  brand:(F.brand||"").trim(),sold:+F.sold||0,cnyOrig:+F.cnyOrig||0,
+  opts:F.opts.map(o=>({n:o.n.trim(),v:o.v.map(x=>x.trim()),vi:o.vi.map(x=>x.trim()),nz:o.nz||"",vz:o.vz||[]})),
+  skus:F.skus.filter(x=>x.k.length===F.opts.length&&x.k.every((v,g)=>v>=0&&v<F.opts[g].v.length)).map(x=>({k:x.k,cny:+x.cny||0,o:+x.o||0,st:x.st===""||x.st==null?-1:+x.st|0,img:x.img||"",pr:+x.pr||0})).filter(x=>x.cny>0||x.pr>0),
+  attrs:F.attrs.filter(a=>a.n.trim()&&a.v.trim())};
+ if(b.opts.some(o=>!o.n))return msg("Hər variant qrupunun adı olmalıdır");
+ if(b.skus.length&&!b.cny)b.cny=Math.min(...b.skus.map(x=>x.cny).filter(x=>x>0));
  if(!b.link||!(b.az||b.zh)||!(b.cny||b.pr))return msg("Link, ad və qiymət lazımdır");
  try{await api("/admin/products"+(ED?"/"+ED:""),{method:ED?"PUT":"POST",body:b});PR=(await api("/admin/products")).list;await lc();ED=null;F=blank();tab("p");msg("Saytda yerləşdirildi")}catch(e){msg(e.message)}}
 setInterval(()=>{if(T&&!$("ap").hidden)api("/orders").then(j=>{const a=j.list,ch=a.length!==OR.length||a.some((o,i)=>(o.hist||[]).length!==((OR[i]||{}).hist||[]).length);if(ch){const n=a.length>OR.length;OR=a;ro();rh();if(n)msg("Yeni sifariş!")}}).catch(()=>{})},30000);
