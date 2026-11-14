@@ -87,8 +87,14 @@ function normSkus(j){const sk=digArr(j,['skus','skuList','sku_list'])||[];if(!sk
    if(nm&&vl)props.push({name:nm.trim(),value:vl.trim(),imageUrl:fixU(pim[ids[i]]||'')})}
   if(props.length)k.properties=props;
   if(k.quantity==null&&k.stock==null&&k.inventory!=null)k.quantity=k.inventory}}
+// pizani/taobao-product-scraper cavabı ({sellerInfo, productInfo:{priceCNY,imgList,options[]}}) — ümumi formaya salırıq
+function normPz(j){const p=j&&j.productInfo;if(!p||typeof p!=='object'||Array.isArray(p))return j;const si=(j.sellerInfo&&typeof j.sellerInfo==='object')?j.sellerInfo:{};
+ const at=p.atributtes||p.attributes||p.atributes,attrs=Array.isArray(at)?at.map(a=>Array.isArray(a)?{name:a[0],value:a[1]}:{name:a&&(a.name||a.key||a.attributeName||a.label),value:a&&(a.value||a.val||a.text)}):(at&&typeof at==='object'?Object.entries(at).map(([k,v])=>({name:k,value:Array.isArray(v)?v.join(' / '):v})):[]);
+ const imgs=Array.isArray(p.imgList)?p.imgList:[];
+ return{title:p.titleCN||p.title||'',cnyPrice:p.priceCNY,originalPrice:p.originalPriceCNY||0,coverImage:imgs[0]||'',images:imgs,desc_imgs:Array.isArray(p.descriptionImages)?p.descriptionImages:[],shopName:si.shopTitle||'',productAttrs:attrs.filter(a=>a.name&&a.value!=null&&typeof a.value!=='object'),
+  skus:(Array.isArray(p.options)?p.options:[]).filter(o=>o&&o.name).map(o=>({cnyPrice:o.priceCNY,quantity:o.stock==null?undefined:o.stock,imageUrl:o.imgUrl||'',properties:[{name:'规格',value:String(o.name),imageUrl:o.imgUrl||''}]}))}}
 function parseItem(j){
- normSkus(j);
+ j=normPz(j);normSkus(j);
  const cjk=/[\u4e00-\u9fff]/;
  const names=[dig(j,['nameTrans']),dig(j,['name','title','item_title','subject'])].map(x=>String(x==null?'':x).trim()).filter(Boolean);
  const title=s(names.find(x=>cjk.test(x))||names[0]||'',300);
@@ -151,8 +157,9 @@ const AA2=(E.APIFY_ACTOR2||E.APIFY_ACTOR||'khadinakbar~taobao-product-detail-scr
 function actInput(actor,link){
  if(E.APIFY_INPUT_KEY)return{[E.APIFY_INPUT_KEY]:[link]};
  if(/zen-studio/.test(actor))return{items:[link],fetchReviews:false};
+ if(/pizani/.test(actor))return{product_url:link};
  if(/memo23|jakvbs|logiover|scrapesage/.test(actor))return{startUrls:[link],maxItems:1};
- if(/h1018y|pizani|mlg14/.test(actor))return{urls:[link],productUrls:[link]};
+ if(/h1018y|mlg14/.test(actor))return{urls:[link],productUrls:[link]};
  return{productUrls:[link],maxItems:1}}
 async function apifyRun(actor,link){
  const r=await fetch('https://api.apify.com/v2/acts/'+actor+'/run-sync-get-dataset-items?timeout=120',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+AK},body:JSON.stringify(actInput(actor,link)),signal:AbortSignal.timeout(130000)});
@@ -160,7 +167,7 @@ async function apifyRun(actor,link){
  if(!r.ok){const m=(j&&j.error&&(j.error.message||j.error.type))||s(txt,150);const run=(String(m).match(/run ID:\s*(\w+)/)||[])[1];
   throw new Error(actor+' → '+r.status+': '+s(m,160)+(run?' | jurnal: https://console.apify.com/actors/runs/'+run:''))}
  if(!Array.isArray(j)||!j[0])throw new Error(actor+' → boş nəticə');
- const x=j[0];if(x&&(x.error||x.errorMessage)&&!x.title&&!x.skus)throw new Error(actor+' → '+s(x.error||x.errorMessage,150));
+ const x=j[0];if(x&&(x.error||x.errorMessage)&&!x.title&&!x.skus&&!x.productInfo)throw new Error(actor+' → '+s(x.error||x.errorMessage,150));
  return x}
 async function apifyRaw(link){
  if(!AK)throw new Error('Apify qoşulmayıb (.env: APIFY_TOKEN)');
