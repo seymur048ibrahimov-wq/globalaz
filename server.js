@@ -151,8 +151,11 @@ function parseItem(j){
 // ---- Apify: token yalnız .env faylında (APIFY_TOKEN) ----
 // Əsas Actor: zen-studio (rəng/ölçü variantları, qiymət, stok, brend verir). Başqasını istəsəniz: APIFY_PRIMARY
 // .env-dəki APIFY_ACTOR (köhnə khadinakbar) avtomatik EHTİYAT olur — əsas Actor alınmasa ona keçilir
-const AK=E.APIFY_TOKEN||'',AA=(E.APIFY_PRIMARY||'zen-studio~taobao-detail-scraper').replace('/','~');
-const AA2=(E.APIFY_ACTOR2||E.APIFY_ACTOR||'khadinakbar~taobao-product-detail-scraper').replace('/','~');
+// İşləməyən köhnə aktorlar (zen-studio detail: pulsuz limit bitib; khadinakbar: FAILED) Environment-də qalsa belə nəzərə alınmır.
+// zen-studio-nu ödənişli planda geri qaytarmaq üçün: APIFY_FORCE=1
+const DEAD=/zen-studio.taobao-detail-scraper|khadinakbar/,envA=v=>{v=String(v||'').trim().replace('/','~');return v&&(E.APIFY_FORCE||!DEAD.test(v))?v:''};
+const AK=E.APIFY_TOKEN||'',AA=envA(E.APIFY_PRIMARY)||'pizani~taobao-product-scraper';
+const AA2=envA(E.APIFY_ACTOR2)||envA(E.APIFY_ACTOR)||'jakvbs~taobao-tmall';
 // Hər Actor linki fərqli sahə adı ilə qəbul edir
 function actInput(actor,link){
  if(E.APIFY_INPUT_KEY)return{[E.APIFY_INPUT_KEY]:[link]};
@@ -327,7 +330,7 @@ const page=n=>{for(const d of[PUB,__dirname]){try{const L=fs.readdirSync(d).map(
 const ICON='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFB347"/><stop offset="1" stop-color="#FF5A00"/></linearGradient><radialGradient id="b" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#3a2410"/><stop offset="1" stop-color="#0b0b0d"/></radialGradient></defs><rect width="512" height="512" rx="112" fill="#0B0B0D"/><circle cx="256" cy="246" r="150" fill="url(#b)" stroke="url(#a)" stroke-width="14"/><path d="M106 246h300M256 96c50 45 50 255 0 300M256 96c-50 45-50 255 0 300M131 171c70 30 180 30 250 0M131 321c70-30 180-30 250 0" stroke="url(#a)" stroke-width="9" fill="none" opacity=".75"/><path d="M46 316c40 70 240 60 390-60 30-25 45-50 35-70" stroke="url(#a)" stroke-width="32" fill="none" stroke-linecap="round"/></svg>';
 app.get('/icon.svg',(q,r)=>{r.set('Cache-Control','public, max-age=86400');r.type('image/svg+xml').send(ICON)});
 app.get('/manifest.webmanifest',(q,r)=>r.type('application/manifest+json').send(JSON.stringify({name:'GlobalAz',short_name:'GlobalAz',description:'Dünya bir toxunuşla yaxındadır',start_url:'/',display:'standalone',background_color:'#0B0B0D',theme_color:'#0B0B0D',lang:'az',icons:[{src:'/icon.svg',sizes:'any',type:'image/svg+xml',purpose:'any'}]})));
-app.get('/healthz',(q,r)=>r.json({ok:true,products:db.products.length}));
+app.get('/healthz',(q,r)=>r.json({ok:true,v:'4.1',actor:AA,actor2:AA2,apify:!!AK,products:db.products.length}));
 app.get('/admin',(q,r)=>{const f=page('admin');f?r.sendFile(f):r.status(404).send('Admin səhifəsi tapılmadı')});
 app.get('/',(q,r)=>{const f=page('index');f?r.sendFile(f):r.status(404).send('Ana səhifə tapılmadı')});
 app.use(express.static(path.join(__dirname,'public')));
