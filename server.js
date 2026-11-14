@@ -50,6 +50,15 @@ function canon(u){const m=String(u||'').match(/https?:\/\/[^\s"'<>]+/);if(!m)ret
  const id=(u.match(/[?&](?:id|offerId)=(\d{6,})/)||u.match(/offer\/(\d{6,})/)||[])[1];
  if(id&&/1688\.com/.test(u))return`https://detail.1688.com/offer/${id}.html`;
  if(id&&/(taobao|tmall)\.com/.test(u))return`https://item.taobao.com/item.htm?id=${id}`;return u}
+// Taobao tətbiqindən paylaşılan qısa linki (e.tb.cn, m.tb.cn) tam məhsul linkinə çevirir — yeni Actor-lar qısa linki tanımır
+async function expand(link){if(!link||/[?&](?:id|offerId)=\d{6,}|offer\/\d{6,}/.test(link))return link;
+ try{const r=await fetch(link,{redirect:'follow',signal:AbortSignal.timeout(12000),headers:{'user-agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148','accept-language':'zh-CN,zh;q=0.9'}});
+  const c=canon(r.url);if(/[?&]id=\d{6,}|offer\/\d{6,}/.test(c))return c;
+  const h=(await r.text()).replace(/\\u002F|\\\//g,'/').replace(/&amp;/g,'&').replace(/\\u0026/g,'&');
+  const m=h.match(/(?:item|detail)\.(?:taobao|tmall)\.com\/item\.htm\?[^"'\s<>]*?[?&]?id=(\d{6,})/)||h.match(/\/i(\d{9,})\.htm/)||h.match(/["']?(?:itemId|item_id|itemNumId|num_iid)["']?\s*[:=]\s*["']?(\d{9,})/);
+  if(m)return'https://item.taobao.com/item.htm?id='+m[1];
+  const o=h.match(/detail\.1688\.com\/offer\/(\d{6,})/);if(o)return'https://detail.1688.com/offer/'+o[1]+'.html'}catch(e){console.error('expand:',e.message)}
+ return link}
 async function lookup(link){
  const r=await fetch(link,{redirect:'follow',signal:AbortSignal.timeout(15000),headers:{'user-agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148','accept-language':'zh-CN,zh;q=0.9'}});
  const h=await r.text(),meta=p=>{const a=h.match(new RegExp(`<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']*)`,'i'))||h.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${p}["']`,'i'));return a?a[1]:''};
@@ -91,8 +100,15 @@ function normSkus(j){const sk=digArr(j,['skus','skuList','sku_list'])||[];if(!sk
 function normPz(j){const p=j&&j.productInfo;if(!p||typeof p!=='object'||Array.isArray(p))return j;const si=(j.sellerInfo&&typeof j.sellerInfo==='object')?j.sellerInfo:{};
  const at=p.atributtes||p.attributes||p.atributes,attrs=Array.isArray(at)?at.map(a=>Array.isArray(a)?{name:a[0],value:a[1]}:{name:a&&(a.name||a.key||a.attributeName||a.label),value:a&&(a.value||a.val||a.text)}):(at&&typeof at==='object'?Object.entries(at).map(([k,v])=>({name:k,value:Array.isArray(v)?v.join(' / '):v})):[]);
  const imgs=Array.isArray(p.imgList)?p.imgList:[];
+ const ops=(Array.isArray(p.options)?p.options:[]).filter(o=>o&&o.name);
+ // "Gray / XL" kimi birləşmiş adları ayrı qruplara bölürük (Rəng, Ölçü) — yalnız bütün variantlarda hissələrin sayı eynidirsə
+ let parts=ops.map(o=>String(o.name).split(/\s+\/\s+/).map(x=>x.trim()));const pn=parts.length?parts[0].length:0;
+ if(!(pn>=2&&pn<=4&&parts.every(x=>x.length===pn&&x.every(Boolean))))parts=ops.map(o=>[String(o.name)]);
+ const SZ=/^(\d{0,2}x{0,4}[sml]\b|xs\b|\d{2,3}(\.5)?\b|均码|one size|free size)|size|尺|码|\bcm\b|\beu\b/i,gn=[];
+ for(let i=0;i<(parts[0]||[]).length;i++){let n=parts.every(x=>SZ.test(x[i]))?'Ölçü':(i===0||!gn.includes('Rəng'))?'Rəng':'Variant '+(i+1);if(gn.includes(n))n='Variant '+(i+1);gn.push(n)}
+ if(gn.length===1)gn[0]='Variant';const gi=Math.max(0,gn.findIndex(n=>n!=='Ölçü'));
  return{title:p.titleCN||p.title||'',cnyPrice:p.priceCNY,originalPrice:p.originalPriceCNY||0,coverImage:imgs[0]||'',images:imgs,desc_imgs:Array.isArray(p.descriptionImages)?p.descriptionImages:[],shopName:si.shopTitle||'',productAttrs:attrs.filter(a=>a.name&&a.value!=null&&typeof a.value!=='object'),
-  skus:(Array.isArray(p.options)?p.options:[]).filter(o=>o&&o.name).map(o=>({cnyPrice:o.priceCNY,quantity:o.stock==null?undefined:o.stock,imageUrl:o.imgUrl||'',properties:[{name:'规格',value:String(o.name),imageUrl:o.imgUrl||''}]}))}}
+  skus:ops.map((o,k)=>({cnyPrice:o.priceCNY,quantity:o.stock==null?undefined:o.stock,imageUrl:o.imgUrl||'',properties:parts[k].map((v,i)=>({name:gn[i],value:v,imageUrl:i===gi?(o.imgUrl||''):''}))}))}}
 function parseItem(j){
  j=normPz(j);normSkus(j);
  const cjk=/[\u4e00-\u9fff]/;
@@ -114,7 +130,7 @@ function parseItem(j){
  if(skus.length){const m=new Map(),vim=new Map();
   const propsOf=k=>((k&&(k.properties||k.props||k.attributes||k.specs))||[]).map(p=>({n:s(p&&(p.displayName||p.name||p.propName||p.attributeName),30).replace(/[:：]/g,' ').trim(),v:s(p&&(p.displayValue||p.value||p.valueName||p.propValue),80).replace(/[,，、]/g,' ').trim(),i:fixU(pick1(p,SKU_IMG))})).filter(x=>x.n&&x.v);
   for(const k of skus)for(const p of propsOf(k)){if(!m.has(p.n))m.set(p.n,[]);const x=m.get(p.n);if(!x.includes(p.v))x.push(p.v);
-   const pi=p.i||fixU(pick1(k,SKU_IMG));if(pi&&!/size|尺|码|尺寸/i.test(p.n)){const K=p.n+'\u0001'+p.v;if(!vim.has(K))vim.set(K,pi)}}
+   const pi=p.i||fixU(pick1(k,SKU_IMG));if(pi&&!/size|尺|码|尺寸|ölçü/i.test(p.n)){const K=p.n+'\u0001'+p.v;if(!vim.has(K))vim.set(K,pi)}}
   const groups=[...m].slice(0,5).map(([n,v])=>[n,v.slice(0,30)]);
   opts=groups.map(([n,v])=>({n,v,vi:v.map(x=>vim.get(n+'\u0001'+x)||''),nz:n,vz:[...v]}));
   for(const k of skus){const pr=propsOf(k);const idx=groups.map(([n,v])=>{const f=pr.find(x=>x.n===n);return f?v.indexOf(f.v):-1});
@@ -304,12 +320,12 @@ app.put('/api/admin/content',auth,(q,r)=>{const b=q.body||{},t=db.settings;
 // ---- Statistika və ehtiyat nüsxə ----
 app.get('/api/admin/stats',auth,(q,r)=>r.json({days:db.stats.days,q:Object.entries(db.stats.q).sort((a,b)=>b[1]-a[1]).slice(0,30),views:db.products.filter(p=>p.views>0).sort((a,b)=>b.views-a.views).slice(0,15).map(p=>({id:p.id,n:p.az||p.zh,img:p.img,views:p.views})),users:Object.keys(db.users).length,disk:{file:F,persistent:!!E.DATA_DIR}}));
 app.get('/api/admin/backup',auth,(q,r)=>{const{secret,pass,...rest}=db;r.set('Content-Disposition','attachment; filename="globalaz-backup-'+today()+'.json"');r.json({v:4,at:new Date().toISOString(),db:rest})});
-app.post('/api/fetch',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
+app.post('/api/fetch',auth,async(q,r)=>{const link=await expand(canon(q.body&&q.body.url));if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  let out=null,apiError='';
  try{const raw=await rawAny(link);const p=parseItem(raw);if(p.title)out={...p,link,via:'api',actor:raw.__actor||AA}}catch(e){apiError=e.message}
  if(out){try{if(out.desc)out.desc=await tr(out.desc)}catch{}out.opts=await trOpts(out.opts);out.attrs=await trAttrs(out.attrs||[]);if(out.shop&&/[\u4e00-\u9fff]/.test(out.shop)){try{out.shop=await tr(out.shop)}catch{}}if(out.brand&&CJK.test(out.brand)){try{out.brand=s(await tr(out.brand),60)}catch{}}return r.json(out)}
  try{r.json({...await lookup(link),via:'page',apiError})}catch(e){r.json({link,title:'',img:'',cny:0,blocked:true,via:'page',apiError})}});
-app.post('/api/admin/taobao-test',auth,async(q,r)=>{const link=canon(q.body&&q.body.url);if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
+app.post('/api/admin/taobao-test',auth,async(q,r)=>{const link=await expand(canon(q.body&&q.body.url));if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  const o={configured:!!AK,actor:AA,id:itemId(link)};
  try{const j=await rawAny(link);o.actor=j.__actor||AA;o.parsed=parseItem(j);o.raw=s(JSON.stringify(j),6000)}catch(e){o.error=e.message}r.json(o)});
 app.post('/api/translate',auth,async(q,r)=>{try{r.json({text:await tr(s(q.body&&q.body.text,1500))})}catch(e){r.status(502).json({error:'Tərcümə alınmadı'})}});
@@ -330,7 +346,7 @@ const page=n=>{for(const d of[PUB,__dirname]){try{const L=fs.readdirSync(d).map(
 const ICON='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFB347"/><stop offset="1" stop-color="#FF5A00"/></linearGradient><radialGradient id="b" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#3a2410"/><stop offset="1" stop-color="#0b0b0d"/></radialGradient></defs><rect width="512" height="512" rx="112" fill="#0B0B0D"/><circle cx="256" cy="246" r="150" fill="url(#b)" stroke="url(#a)" stroke-width="14"/><path d="M106 246h300M256 96c50 45 50 255 0 300M256 96c-50 45-50 255 0 300M131 171c70 30 180 30 250 0M131 321c70-30 180-30 250 0" stroke="url(#a)" stroke-width="9" fill="none" opacity=".75"/><path d="M46 316c40 70 240 60 390-60 30-25 45-50 35-70" stroke="url(#a)" stroke-width="32" fill="none" stroke-linecap="round"/></svg>';
 app.get('/icon.svg',(q,r)=>{r.set('Cache-Control','public, max-age=86400');r.type('image/svg+xml').send(ICON)});
 app.get('/manifest.webmanifest',(q,r)=>r.type('application/manifest+json').send(JSON.stringify({name:'GlobalAz',short_name:'GlobalAz',description:'Dünya bir toxunuşla yaxındadır',start_url:'/',display:'standalone',background_color:'#0B0B0D',theme_color:'#0B0B0D',lang:'az',icons:[{src:'/icon.svg',sizes:'any',type:'image/svg+xml',purpose:'any'}]})));
-app.get('/healthz',(q,r)=>r.json({ok:true,v:'4.1',actor:AA,actor2:AA2,apify:!!AK,products:db.products.length}));
+app.get('/healthz',(q,r)=>r.json({ok:true,v:'4.2',actor:AA,actor2:AA2,apify:!!AK,products:db.products.length}));
 app.get('/admin',(q,r)=>{const f=page('admin');f?r.sendFile(f):r.status(404).send('Admin səhifəsi tapılmadı')});
 app.get('/',(q,r)=>{const f=page('index');f?r.sendFile(f):r.status(404).send('Ana səhifə tapılmadı')});
 app.use(express.static(path.join(__dirname,'public')));
