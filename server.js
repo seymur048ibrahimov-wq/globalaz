@@ -5,7 +5,37 @@ const E=process.env,PORT=E.PORT||3000,PASS=E.ADMIN_PASSWORD||'admin123';
 const cfg={rate:+E.CNY_AZN||0.24,usd:1.7,margin:E.MARGIN?+E.MARGIN:12,cargo:E.CARGO_PER_KG?+E.CARGO_PER_KG:6,cust:E.CUSTOMS?+E.CUSTOMS:5,ship:0,wa:E.WHATSAPP||'994500000000'};
 const F=path.join(E.DATA_DIR||path.join(__dirname,'data'),'db.json');fs.mkdirSync(path.dirname(F),{recursive:true});
 let db={products:[],orders:[]};try{db=JSON.parse(fs.readFileSync(F,'utf8'))}catch{}
-const save=()=>{const t=F+'.tmp';fs.writeFileSync(t,JSON.stringify(db));fs.renameSync(t,F)};
+const save=()=>{const t=F+'.tmp';fs.writeFileSync(t,JSON.stringify(db));fs.renameSync(t,F);remoteSoon()};
+// ---- DAİMİ SAXLAMA (Firebase Firestore) ----
+// Render pulsuz planında disk hər yenidən başlamada silinir. FIREBASE_SERVICE_ACCOUNT təyin olunarsa,
+// bütün baza sıxılıb Firestore-da ("globalazDb" kolleksiyası) saxlanır və başlanğıcda oradan bərpa olunur.
+const zlib=require('zlib');
+const FSA=(()=>{try{let raw=E.FIREBASE_SERVICE_ACCOUNT;if(!raw)return null;raw=raw.trim();if(raw[0]!=='{')raw=Buffer.from(raw,'base64').toString('utf8');const j=JSON.parse(raw);if(!j.client_email||!j.private_key||!j.project_id)return null;j.private_key=j.private_key.replace(/\\n/g,'\n');return j}catch(e){console.error('FIREBASE_SERVICE_ACCOUNT oxunmadı:',e.message);return null}})();
+const b64u=x=>Buffer.from(x).toString('base64').replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+let fsTok=null,fsTokExp=0;
+const fsToken=async()=>{if(fsTok&&Date.now()<fsTokExp-60000)return fsTok;const now=Math.floor(Date.now()/1000);
+ const h=b64u(JSON.stringify({alg:'RS256',typ:'JWT'})),c=b64u(JSON.stringify({iss:FSA.client_email,scope:'https://www.googleapis.com/auth/datastore',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+3600}));
+ const sg=crypto.createSign('RSA-SHA256').update(h+'.'+c).sign(FSA.private_key);
+ const r=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type='+encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')+'&assertion='+h+'.'+c+'.'+b64u(sg)});
+ const j=await r.json();if(!j.access_token)throw new Error('token: '+JSON.stringify(j).slice(0,200));fsTok=j.access_token;fsTokExp=Date.now()+(j.expires_in||3600)*1000;return fsTok};
+const fsBase=()=>'https://firestore.googleapis.com/v1/projects/'+FSA.project_id+'/databases/(default)/documents/globalazDb';
+const fsReq=async(m,name,body)=>{const r=await fetch(fsBase()+'/'+name,{method:m,headers:{Authorization:'Bearer '+await fsToken(),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+ if(r.status===404)return null;const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(m+' '+name+' '+r.status+' '+JSON.stringify(j).slice(0,200));return j};
+const CH=900000;let remoteN=0,lastHash='',remoteReady=!FSA,remoteBusy=false,remoteT=null,remoteDirty=false;
+const remoteLoad=async()=>{const m=await fsReq('GET','meta');if(!m||!m.fields||!m.fields.n)return null;const n=+m.fields.n.integerValue;remoteN=n;
+ const parts=await Promise.all(Array.from({length:n},(_,i)=>fsReq('GET','part'+i)));
+ const str=parts.map(d=>{if(!d||!d.fields||!d.fields.d)throw new Error('Firestore hissəsi çatmır');return d.fields.d.stringValue}).join('');
+ const raw=zlib.gunzipSync(Buffer.from(str,'base64')).toString('utf8');lastHash=crypto.createHash('md5').update(raw).digest('hex');return JSON.parse(raw)};
+const remotePush=async()=>{if(!FSA||!remoteReady)return;if(remoteBusy){remoteDirty=true;return}remoteBusy=true;
+ try{const raw=JSON.stringify(db),h=crypto.createHash('md5').update(raw).digest('hex');if(h===lastHash)return;
+  const z=zlib.gzipSync(raw).toString('base64'),n=Math.max(1,Math.ceil(z.length/CH));
+  for(let i=0;i<n;i++)await fsReq('PATCH','part'+i,{fields:{d:{stringValue:z.slice(i*CH,(i+1)*CH)}}});
+  await fsReq('PATCH','meta',{fields:{n:{integerValue:String(n)},t:{stringValue:new Date().toISOString()},p:{integerValue:String((db.products||[]).length)}}});
+  for(let i=n;i<remoteN;i++)await fsReq('DELETE','part'+i).catch(()=>{});
+  remoteN=n;lastHash=h}catch(e){console.error('Firestore saxlama xətası:',e.message)}
+ finally{remoteBusy=false;if(remoteDirty){remoteDirty=false;remoteSoon()}}};
+function remoteSoon(){if(!FSA||!remoteReady||remoteT)return;remoteT=setTimeout(()=>{remoteT=null;remotePush()},20000)}
+const remoteFlush=async()=>{if(remoteT){clearTimeout(remoteT);remoteT=null}await Promise.race([remotePush(),new Promise(r=>setTimeout(r,12000))])};
 let saveT=null;const saveSoon=()=>{if(!saveT)saveT=setTimeout(()=>{saveT=null;try{save()}catch(e){console.error('save:',e.message)}},4000)};
 const uid=()=>crypto.randomBytes(5).toString('hex'),s=(x,n=200)=>String(x==null?'':x).slice(0,n);
 db.settings=db.settings||{};db.products=db.products||[];db.orders=db.orders||[];db.users=db.users||{};db.reviews=db.reviews||[];db.coupons=db.coupons||[];db.banners=db.banners||[];db.stats=db.stats||{};db.stats.q=db.stats.q||{};db.stats.days=db.stats.days||{};
@@ -318,7 +348,7 @@ app.put('/api/admin/content',auth,(q,r)=>{const b=q.body||{},t=db.settings;
  if(Array.isArray(b.banners))db.banners=b.banners.slice(0,8).map(x=>({t:s(x&&x.t,80).trim(),s:s(x&&x.s,160).trim(),img:/^https:\/\//.test(String(x&&x.img||''))?s(x.img,500):'',c:s(x&&x.c,40),btn:s(x&&x.btn,30).trim()})).filter(x=>x.t||x.img);
  save();r.json({ok:true,...store()})});
 // ---- Statistika və ehtiyat nüsxə ----
-app.get('/api/admin/stats',auth,(q,r)=>r.json({days:db.stats.days,q:Object.entries(db.stats.q).sort((a,b)=>b[1]-a[1]).slice(0,30),views:db.products.filter(p=>p.views>0).sort((a,b)=>b.views-a.views).slice(0,15).map(p=>({id:p.id,n:p.az||p.zh,img:p.img,views:p.views})),users:Object.keys(db.users).length,disk:{file:F,persistent:!!E.DATA_DIR}}));
+app.get('/api/admin/stats',auth,(q,r)=>r.json({days:db.stats.days,q:Object.entries(db.stats.q).sort((a,b)=>b[1]-a[1]).slice(0,30),views:db.products.filter(p=>p.views>0).sort((a,b)=>b.views-a.views).slice(0,15).map(p=>({id:p.id,n:p.az||p.zh,img:p.img,views:p.views})),users:Object.keys(db.users).length,disk:{file:F,persistent:!!E.DATA_DIR||!!FSA,firestore:!!FSA}}));
 app.get('/api/admin/backup',auth,(q,r)=>{const{secret,pass,...rest}=db;r.set('Content-Disposition','attachment; filename="globalaz-backup-'+today()+'.json"');r.json({v:4,at:new Date().toISOString(),db:rest})});
 app.post('/api/fetch',auth,async(q,r)=>{const link=await expand(canon(q.body&&q.body.url));if(!link)return r.status(400).json({error:'Düzgün link daxil edin'});
  let out=null,apiError='';
@@ -350,5 +380,14 @@ app.get('/healthz',(q,r)=>r.json({ok:true,v:'4.2',actor:AA,actor2:AA2,apify:!!AK
 app.get('/admin',(q,r)=>{const f=page('admin');f?r.sendFile(f):r.status(404).send('Admin səhifəsi tapılmadı')});
 app.get('/',(q,r)=>{const f=page('index');f?r.sendFile(f):r.status(404).send('Ana səhifə tapılmadı')});
 app.use(express.static(path.join(__dirname,'public')));
-for(const sg of['SIGTERM','SIGINT'])process.on(sg,()=>{try{save()}catch{}process.exit(0)});
-app.listen(PORT,()=>console.log('GlobalAz: http://localhost:'+PORT+'  |  Admin: http://localhost:'+PORT+'/admin'));
+for(const sg of['SIGTERM','SIGINT'])process.on(sg,async()=>{try{save()}catch{}try{await remoteFlush()}catch{}process.exit(0)});
+const normalize=()=>{db.settings=db.settings||{};db.products=db.products||[];db.orders=db.orders||[];db.users=db.users||{};db.reviews=db.reviews||[];db.coupons=db.coupons||[];db.banners=db.banners||[];db.stats=db.stats||{};db.stats.q=db.stats.q||{};db.stats.days=db.stats.days||{};if(!db.secret)db.secret=crypto.randomBytes(24).toString('hex')};
+(async()=>{
+ if(FSA){try{const r=await remoteLoad();
+   if(r&&Array.isArray(r.products)){db=r;normalize();try{fs.writeFileSync(F,JSON.stringify(db))}catch{}console.log('Firestore-dan bərpa olundu: '+db.products.length+' məhsul, '+db.orders.length+' sifariş')}
+   else console.log('Firestore boşdur — cari baza yüklənəcək ('+db.products.length+' məhsul)');
+   remoteReady=true;if(!r)await remotePush()}
+  catch(e){console.error('Firestore-a qoşulmaq alınmadı, DAİMİ SAXLAMA SÖNDÜ:',e.message)}}
+ else console.log('FIREBASE_SERVICE_ACCOUNT təyin olunmayıb — baza yalnız yerli diskdə (Render-də silinə bilər!)');
+ app.listen(PORT,()=>console.log('GlobalAz: http://localhost:'+PORT+'  |  Admin: http://localhost:'+PORT+'/admin'));
+})();
