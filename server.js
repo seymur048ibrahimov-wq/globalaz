@@ -21,7 +21,7 @@ const fsToken=async()=>{if(fsTok&&Date.now()<fsTokExp-60000)return fsTok;const n
 const fsBase=()=>'https://firestore.googleapis.com/v1/projects/'+FSA.project_id+'/databases/(default)/documents/globalazDb';
 const fsReq=async(m,name,body)=>{const r=await fetch(fsBase()+'/'+name,{method:m,headers:{Authorization:'Bearer '+await fsToken(),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
  if(r.status===404)return null;const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(m+' '+name+' '+r.status+' '+JSON.stringify(j).slice(0,200));return j};
-const REMOTE=!!(FSA||E.APIFY_TOKEN);const CH=900000;let remoteN=0,lastHash='',remoteReady=!(FSA||E.APIFY_TOKEN),remoteBusy=false,remoteT=null,remoteDirty=false;
+const REMOTE=!!(FSA||E.APIFY_TOKEN);const CH=900000;let remoteN=0,lastHash='',remoteReady=!(FSA||E.APIFY_TOKEN),remoteBusy=false,remoteT=null,remoteDirty=false;let persistAt='',persistFail=false;
 // Apify Key-Value Store (APIFY_TOKEN artıq mövcuddur — əlavə açar lazım deyil)
 const AT=E.APIFY_TOKEN||'';let aStore=null;
 const aId=async()=>{if(aStore)return aStore;const r=await fetch('https://api.apify.com/v2/key-value-stores?name=globalaz-db',{method:'POST',headers:{Authorization:'Bearer '+AT}});const j=await r.json();if(!r.ok||!j.data||!j.data.id)throw new Error('Apify store: '+r.status+' '+JSON.stringify(j).slice(0,160));return aStore=j.data.id};
@@ -38,9 +38,9 @@ const remoteLoad=async()=>{const str=FSA?await fGet():await aGet();if(!str)retur
  const raw=zlib.gunzipSync(Buffer.from(str,'base64')).toString('utf8');lastHash=crypto.createHash('md5').update(raw).digest('hex');return JSON.parse(raw)};
 const remotePush=async()=>{if(!REMOTE||!remoteReady)return;if(remoteBusy){remoteDirty=true;return}remoteBusy=true;
  try{const raw=JSON.stringify(db),h=crypto.createHash('md5').update(raw).digest('hex');if(h===lastHash)return;
-  const z=zlib.gzipSync(raw).toString('base64');if(FSA)await fPut(z);else await aPut(z);lastHash=h}catch(e){console.error('Uzaq saxlama xətası:',e.message)}
+  const z=zlib.gzipSync(raw).toString('base64');if(FSA)await fPut(z);else await aPut(z);lastHash=h;persistAt=new Date().toISOString()}catch(e){console.error('Uzaq saxlama xətası:',e.message)}
  finally{remoteBusy=false;if(remoteDirty){remoteDirty=false;remoteSoon()}}};
-function remoteSoon(){if(!REMOTE||!remoteReady||remoteT)return;remoteT=setTimeout(()=>{remoteT=null;remotePush()},20000)}
+function remoteSoon(){if(!REMOTE||!remoteReady||remoteT)return;remoteT=setTimeout(()=>{remoteT=null;remotePush()},4000)}
 const remoteFlush=async()=>{if(remoteT){clearTimeout(remoteT);remoteT=null}await Promise.race([remotePush(),new Promise(r=>setTimeout(r,12000))])};
 let saveT=null;const saveSoon=()=>{if(!saveT)saveT=setTimeout(()=>{saveT=null;try{save()}catch(e){console.error('save:',e.message)}},4000)};
 const uid=()=>crypto.randomBytes(5).toString('hex'),s=(x,n=200)=>String(x==null?'':x).slice(0,n);
@@ -62,6 +62,8 @@ const cats=()=>Array.isArray(db.cats)&&db.cats.length?db.cats:DEFCATS;
 const hist=(o,k,v,n)=>{(o.hist=o.hist||[]).push({t:new Date().toISOString(),k,v:s(v,80),n:s(n||'',200)})};
 const app=express();app.set('trust proxy',1);
 app.use((q,r,n)=>{r.set('X-Content-Type-Options','nosniff');r.set('Referrer-Policy','strict-origin-when-cross-origin');n()});
+// Daimi saxlama qoşulmayıbsa admin dəyişiklikləri yadda qalmazdı — səssizcə itirmək əvəzinə açıq xəta qaytarırıq
+app.use('/api/admin',(q,r,n)=>{if(persistFail&&q.method!=='GET')return r.status(503).json({error:'Daimi saxlama qoşulmayıb — dəyişiklik yadda qalmaz. 1–2 dəqiqə sonra yenidən cəhd edin'});n()});
 // Sadə sorğu limiti (IP + ünvan üzrə) — spam və kobud güc cəhdlərinə qarşı
 const hits=new Map();const rl=(n,ms)=>(q,r,nx)=>{const k=q.ip+'|'+q.path,now=Date.now(),a=(hits.get(k)||[]).filter(t=>now-t<ms);if(a.length>=n)return r.status(429).json({error:'Çox sorğu göndərildi. Bir az sonra yenidən yoxlayın'});a.push(now);hits.set(k,a);if(hits.size>8000)hits.clear();nx()};
 // Ehtiyat nüsxənin bərpası böyük fayl ola bilər — ümumi 1mb limitindən əvvəl ayrıca qeydiyyat
@@ -382,7 +384,7 @@ const page=n=>{for(const d of[PUB,__dirname]){try{const L=fs.readdirSync(d).map(
 const ICON='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFB347"/><stop offset="1" stop-color="#FF5A00"/></linearGradient><radialGradient id="b" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#3a2410"/><stop offset="1" stop-color="#0b0b0d"/></radialGradient></defs><rect width="512" height="512" rx="112" fill="#0B0B0D"/><circle cx="256" cy="246" r="150" fill="url(#b)" stroke="url(#a)" stroke-width="14"/><path d="M106 246h300M256 96c50 45 50 255 0 300M256 96c-50 45-50 255 0 300M131 171c70 30 180 30 250 0M131 321c70-30 180-30 250 0" stroke="url(#a)" stroke-width="9" fill="none" opacity=".75"/><path d="M46 316c40 70 240 60 390-60 30-25 45-50 35-70" stroke="url(#a)" stroke-width="32" fill="none" stroke-linecap="round"/></svg>';
 app.get('/icon.svg',(q,r)=>{r.set('Cache-Control','public, max-age=86400');r.type('image/svg+xml').send(ICON)});
 app.get('/manifest.webmanifest',(q,r)=>r.type('application/manifest+json').send(JSON.stringify({name:'GlobalAz',short_name:'GlobalAz',description:'Dünya bir toxunuşla yaxındadır',start_url:'/',display:'standalone',background_color:'#0B0B0D',theme_color:'#0B0B0D',lang:'az',icons:[{src:'/icon.svg',sizes:'any',type:'image/svg+xml',purpose:'any'}]})));
-app.get('/healthz',(q,r)=>r.json({ok:true,v:'4.2',actor:AA,actor2:AA2,apify:!!AK,products:db.products.length}));
+app.get('/healthz',(q,r)=>r.json({ok:true,v:'4.2',actor:AA,actor2:AA2,apify:!!AK,products:db.products.length,persist:{mode:FSA?'firestore':(E.APIFY_TOKEN?'apify':'disk-only'),ok:REMOTE?(remoteReady&&!persistFail):false,last:persistAt}}));
 app.get('/admin',(q,r)=>{const f=page('admin');f?r.sendFile(f):r.status(404).send('Admin səhifəsi tapılmadı')});
 app.get('/',(q,r)=>{const f=page('index');f?r.sendFile(f):r.status(404).send('Ana səhifə tapılmadı')});
 app.use(express.static(path.join(__dirname,'public')));
@@ -394,12 +396,19 @@ process.on('uncaughtException',e=>console.error('uncaughtException:',e&&e.stack|
 if(E.RENDER_EXTERNAL_URL)setInterval(()=>{fetch(E.RENDER_EXTERNAL_URL+'/healthz',{signal:AbortSignal.timeout(20000)}).catch(()=>{})},9*60*1000);
 for(const sg of['SIGTERM','SIGINT'])process.on(sg,async()=>{try{save()}catch{}try{await remoteFlush()}catch{}process.exit(0)});
 const normalize=()=>{db.settings=db.settings||{};db.products=db.products||[];db.orders=db.orders||[];db.users=db.users||{};db.reviews=db.reviews||[];db.coupons=db.coupons||[];db.banners=db.banners||[];db.stats=db.stats||{};db.stats.q=db.stats.q||{};db.stats.days=db.stats.days||{};if(!db.secret)db.secret=crypto.randomBytes(24).toString('hex')};
+// Uzaq saxlamadan bazanı yükləyir. merge=true (sonradan qoşulma) olduqda arada gələn yerli sifarişlər itməsin deyə birləşdirilir
+const connectRemote=async merge=>{const r=await remoteLoad();
+ if(r&&Array.isArray(r.products)){const loc=db;db=r;normalize();
+  if(merge&&loc&&Array.isArray(loc.orders)){const ids=new Set(db.orders.map(o=>o.id));for(const o of loc.orders)if(o&&o.id&&!ids.has(o.id))db.orders.unshift(o)}
+  try{fs.writeFileSync(F,JSON.stringify(db))}catch{}console.log((FSA?'Firestore':'Apify')+'-dan bərpa olundu: '+db.products.length+' məhsul, '+db.orders.length+' sifariş')}
+ else console.log((FSA?'Firestore':'Apify')+' boşdur — cari baza yüklənəcək ('+db.products.length+' məhsul)');
+ remoteReady=true;persistFail=false;if(!r||merge)await remotePush()};
 (async()=>{
- if(REMOTE){try{const r=await remoteLoad();
-   if(r&&Array.isArray(r.products)){db=r;normalize();try{fs.writeFileSync(F,JSON.stringify(db))}catch{}console.log((FSA?'Firestore':'Apify')+'-dan bərpa olundu: '+db.products.length+' məhsul, '+db.orders.length+' sifariş')}
-   else console.log((FSA?'Firestore':'Apify')+' boşdur — cari baza yüklənəcək ('+db.products.length+' məhsul)');
-   remoteReady=true;if(!r)await remotePush()}
-  catch(e){console.error('Uzaq saxlamaya qoşulmaq alınmadı, DAİMİ SAXLAMA SÖNDÜ:',e.message)}}
+ if(REMOTE){
+  // Bir neçə dəfə cəhd edilir: qısa şəbəkə xətası səbəbindən boş bazanın işə düşməsinə yol verilmir
+  for(let i=1;i<=5&&!remoteReady;i++){try{await connectRemote(false)}catch(e){console.error('Uzaq saxlamaya qoşulma cəhdi '+i+'/5 alınmadı:',e.message);if(i<5)await new Promise(r=>setTimeout(r,i*3000))}}
+  if(!remoteReady){persistFail=true;console.error('DAİMİ SAXLAMA QOŞULMADI — admin yazmaları bağlıdır, arxa planda yenidən cəhd olunur');
+   const t=setInterval(async()=>{try{await connectRemote(true);clearInterval(t);console.log('Daimi saxlama bərpa olundu')}catch(e){console.error('Yenidən qoşulma alınmadı:',e.message)}},30000)}}
  else console.log('FIREBASE_SERVICE_ACCOUNT / APIFY_TOKEN təyin olunmayıb — baza yalnız yerli diskdə (Render-də silinə bilər!)');
  app.listen(PORT,()=>console.log('GlobalAz: http://localhost:'+PORT+'  |  Admin: http://localhost:'+PORT+'/admin'));
 })();
