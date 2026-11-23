@@ -386,6 +386,12 @@ app.get('/healthz',(q,r)=>r.json({ok:true,v:'4.2',actor:AA,actor2:AA2,apify:!!AK
 app.get('/admin',(q,r)=>{const f=page('admin');f?r.sendFile(f):r.status(404).send('Admin səhifəsi tapılmadı')});
 app.get('/',(q,r)=>{const f=page('index');f?r.sendFile(f):r.status(404).send('Ana səhifə tapılmadı')});
 app.use(express.static(path.join(__dirname,'public')));
+// ---- Dayanıqlılıq: gözlənilməz xəta serveri söndürməsin ----
+app.use((e,q,r,n)=>{console.error('Sorğu xətası:',q.method,q.path,e&&e.message);if(r.headersSent)return n(e);r.status(e&&e.status>=400&&e.status<500?e.status:500).json({error:'Server xətası, yenidən cəhd edin'})});
+process.on('unhandledRejection',e=>console.error('unhandledRejection:',e&&e.stack||e));
+process.on('uncaughtException',e=>console.error('uncaughtException:',e&&e.stack||e));
+// Render pulsuz planı 15 dəq. boş qalanda yatır — öz ünvanına vaxtaşırı sorğu göndərib oyaq saxlayır
+if(E.RENDER_EXTERNAL_URL)setInterval(()=>{fetch(E.RENDER_EXTERNAL_URL+'/healthz',{signal:AbortSignal.timeout(20000)}).catch(()=>{})},9*60*1000);
 for(const sg of['SIGTERM','SIGINT'])process.on(sg,async()=>{try{save()}catch{}try{await remoteFlush()}catch{}process.exit(0)});
 const normalize=()=>{db.settings=db.settings||{};db.products=db.products||[];db.orders=db.orders||[];db.users=db.users||{};db.reviews=db.reviews||[];db.coupons=db.coupons||[];db.banners=db.banners||[];db.stats=db.stats||{};db.stats.q=db.stats.q||{};db.stats.days=db.stats.days||{};if(!db.secret)db.secret=crypto.randomBytes(24).toString('hex')};
 (async()=>{
